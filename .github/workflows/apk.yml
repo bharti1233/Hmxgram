@@ -1,0 +1,334 @@
+name: APK build (gated)
+
+# This workflow is intentionally manual and protected. It does not run on push
+# or pull request. It requires a stock Instagram APK, a pinned Morphe CLI, and
+# signing material supplied through repository/environment secrets.
+#
+# Do not put a stock Instagram APK, a patched APK, a keystore, or a token in
+# the repository. The downloaded base APK is deleted at the end of the job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      instagram_version:
+        description: Exact Instagram version of the base APK (recorded in the artifact name and summary)
+        required: true
+        type: string
+      base_apk_kind:
+        description: Base input format
+        required: true
+        default: apk
+        type: choice
+        options:
+          - apk
+          - apkm
+          - xapk
+          - apks
+      clone:
+        description: Build the side-by-side clone package (com.instagram.android.feurstagram)
+        required: true
+        default: false
+        type: boolean
+      allow_throwaway_signature:
+        description: Allow a throwaway signing key (test artifacts only; never for release)
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    name: Build patched APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Configure this environment in GitHub with required reviewers before use.
+    environment: apk-build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35 and Build Tools 35.0.0
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          java -version
+          printf 'JAVA_HOME=%s\n' "$JAVA_HOME"
+          printf 'ANDROID_HOME=%s\n' "$ANDROID_HOME"
+          sdkmanager --list_installed | grep -E 'platforms;android-35|build-tools;35.0.0'
+          bash ./gradlew --version
+
+      - name: Validate required inputs and secrets
+        env:
+          BASE_APK_URL: ${{ secrets.BASE_APK_URL }}
+          BASE_APK_SHA256: ${{ secrets.BASE_APK_SHA256 }}
+          MORPHE_CLI_URL: ${{ secrets.MORPHE_CLI_URL }}
+          MORPHE_CLI_SHA256: ${{ secrets.MORPHE_CLI_SHA256 }}
+          MORPHE_USER: ${{ secrets.MORPHE_REGISTRY_USER }}
+          MORPHE_TOKEN: ${{ secrets.MORPHE_REGISTRY_TOKEN }}
+          INSTAGRAM_VERSION: ${{ inputs.instagram_version }}
+          BASE_APK_KIND: ${{ inputs.base_apk_kind }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in BASE_APK_URL BASE_APK_SHA256 MORPHE_CLI_URL MORPHE_CLI_SHA256 MORPHE_USER MORPHE_TOKEN; do
+            value="${!name:-}"
+            [ -n "$value" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf '::error title=Missing APK build secrets::%s\n' "Missing: ${missing[*]}"
+            exit 1
+          fi
+          case "$BASE_APK_URL" in
+            https://*) ;;
+            *) echo "::error::BASE_APK_URL must use https://"; exit 1 ;;
+          esac
+          case "$MORPHE_CLI_URL" in
+            https://*) ;;
+            *) echo "::error::MORPHE_CLI_URL must use https://"; exit 1 ;;
+          esac
+          [[ "$BASE_APK_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || {
+            echo "::error::BASE_APK_SHA256 must be a 64-character hex digest"
+            exit 1
+          }
+          [[ "$MORPHE_CLI_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || {
+            echo "::error::MORPHE_CLI_SHA256 must be a 64-character hex digest"
+            exit 1
+          }
+          [[ "$INSTAGRAM_VERSION" =~ ^[A-Za-z0-9._-]+$ ]] || {
+            echo "::error::instagram_version contains unsupported characters"
+            exit 1
+          }
+          case "$BASE_APK_KIND" in
+            apk|apkm|xapk|apks) ;;
+            *) echo "::error::unsupported base_apk_kind"; exit 1 ;;
+          esac
+
+      - name: Download stock Instagram APK
+        env:
+          BASE_APK_URL: ${{ secrets.BASE_APK_URL }}
+          BASE_APK_SHA256: ${{ secrets.BASE_APK_SHA256 }}
+          BASE_APK_TOKEN: ${{ secrets.BASE_APK_TOKEN }}
+          BASE_APK_KIND: ${{ inputs.base_apk_kind }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hmx-input"
+          out="$RUNNER_TEMP/hmx-input/instagram.$BASE_APK_KIND"
+          header="$RUNNER_TEMP/hmx-input/base-apk-auth.header"
+          if [ -n "${BASE_APK_TOKEN:-}" ]; then
+            printf 'Authorization: Bearer %s\n' "$BASE_APK_TOKEN" > "$header"
+            chmod 600 "$header"
+            curl --fail --location --retry 3 --retry-delay 5 \
+              --proto '=https' --tlsv1.2 --max-time 900 \
+              --silent --show-error -H @"$header" -o "$out" "$BASE_APK_URL"
+            rm -f "$header"
+          else
+            curl --fail --location --retry 3 --retry-delay 5 \
+              --proto '=https' --tlsv1.2 --max-time 900 \
+              --silent --show-error -o "$out" "$BASE_APK_URL"
+          fi
+          printf '%s  %s\n' "$BASE_APK_SHA256" "$out" | sha256sum -c -
+          echo "BASE_APK=$out" >> "$GITHUB_ENV"
+
+      - name: Record base APK certificate
+        if: inputs.base_apk_kind == 'apk'
+        run: |
+          set -euo pipefail
+          apksigner verify --print-certs "$BASE_APK" | tee "$RUNNER_TEMP/base-apk-certs.txt"
+          echo "::notice::Compare this certificate with the expected Meta Instagram signer before trusting the build."
+
+      - name: Download pinned Morphe CLI
+        env:
+          MORPHE_CLI_URL: ${{ secrets.MORPHE_CLI_URL }}
+          MORPHE_CLI_SHA256: ${{ secrets.MORPHE_CLI_SHA256 }}
+          MORPHE_CLI_TOKEN: ${{ secrets.MORPHE_CLI_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p tools
+          cli="tools/morphe-cli-pinned.jar"
+          header="$RUNNER_TEMP/hmx-input/cli-auth.header"
+          if [ -n "${MORPHE_CLI_TOKEN:-}" ]; then
+            printf 'Authorization: Bearer %s\n' "$MORPHE_CLI_TOKEN" > "$header"
+            chmod 600 "$header"
+            curl --fail --location --retry 3 --retry-delay 5 \
+              --proto '=https' --tlsv1.2 --max-time 600 \
+              --silent --show-error -H @"$header" -o "$cli" "$MORPHE_CLI_URL"
+            rm -f "$header"
+          else
+            curl --fail --location --retry 3 --retry-delay 5 \
+              --proto '=https' --tlsv1.2 --max-time 600 \
+              --silent --show-error -o "$cli" "$MORPHE_CLI_URL"
+          fi
+          printf '%s  %s\n' "$MORPHE_CLI_SHA256" "$cli" | sha256sum -c -
+          file "$cli"
+
+      - name: Download APKEditor for split bundles
+        env:
+          APKEDITOR_URL: ${{ secrets.APKEDITOR_URL }}
+          APKEDITOR_SHA256: ${{ secrets.APKEDITOR_SHA256 }}
+          BASE_APK_KIND: ${{ inputs.base_apk_kind }}
+        run: |
+          set -euo pipefail
+          if [ "$BASE_APK_KIND" = "apk" ]; then
+            echo "Single APK input; APKEditor not required."
+            exit 0
+          fi
+          if [ -z "${APKEDITOR_URL:-}" ] || [ -z "${APKEDITOR_SHA256:-}" ]; then
+            echo "::error title=Missing APKEditor::Split bundles require APKEDITOR_URL and APKEDITOR_SHA256 secrets."
+            exit 1
+          fi
+          editor="tools/APKEditor-pinned.jar"
+          curl --fail --location --retry 3 --retry-delay 5 \
+            --proto '=https' --tlsv1.2 --max-time 600 \
+            --silent --show-error -o "$editor" "$APKEDITOR_URL"
+          printf '%s  %s\n' "$APKEDITOR_SHA256" "$editor" | sha256sum -c -
+
+      - name: Configure Morphe registry credentials
+        env:
+          MORPHE_USER: ${{ secrets.MORPHE_REGISTRY_USER }}
+          MORPHE_TOKEN: ${{ secrets.MORPHE_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.gradle"
+          umask 077
+          {
+            printf 'gpr.user=%s\n' "$MORPHE_USER"
+            printf 'gpr.key=%s\n' "$MORPHE_TOKEN"
+          } > "$HOME/.gradle/gradle.properties"
+
+      - name: Prepare signing material
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.RELEASE_KEYSTORE_PASS }}
+          KEY_PASS: ${{ secrets.RELEASE_KEY_PASS }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          ALLOW_THROWAWAY: ${{ inputs.allow_throwaway_signature }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            if [ -z "${KEYSTORE_PASS:-}" ]; then
+              echo "::error::RELEASE_KEYSTORE_PASS is required when RELEASE_KEYSTORE_BASE64 is set."
+              exit 1
+            fi
+            ks="$RUNNER_TEMP/hmx-input/release.keystore"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$ks"
+            chmod 600 "$ks"
+            echo "FEURSTAGRAM_KEYSTORE=$ks" >> "$GITHUB_ENV"
+            echo "FEURSTAGRAM_KEYSTORE_PASS=$KEYSTORE_PASS" >> "$GITHUB_ENV"
+            echo "FEURSTAGRAM_KEY_PASS=${KEY_PASS:-$KEYSTORE_PASS}" >> "$GITHUB_ENV"
+            echo "FEURSTAGRAM_KEY_ALIAS=${KEY_ALIAS:-feurstagram}" >> "$GITHUB_ENV"
+          elif [ "$ALLOW_THROWAWAY" = "true" ]; then
+            echo "::warning::No release keystore configured; using a throwaway key. This artifact is for testing only."
+          else
+            echo "::error title=Missing signing material::Set RELEASE_KEYSTORE_BASE64/RELEASE_KEYSTORE_PASS or enable allow_throwaway_signature."
+            exit 1
+          fi
+
+      - name: Build patch bundle
+        run: |
+          set -o pipefail
+          bash ./gradlew :patches:build --no-daemon --stacktrace --console=plain 2>&1 | tee "$RUNNER_TEMP/apk-build.log"
+
+      - name: Patch and sign APK
+        env:
+          CLONE: ${{ inputs.clone }}
+        run: |
+          set -euo pipefail
+          args=("$BASE_APK")
+          if [ "$CLONE" = "true" ]; then
+            args+=(--clone)
+          fi
+          bash ./build.sh "${args[@]}" 2>&1 | tee -a "$RUNNER_TEMP/apk-build.log"
+
+      - name: Verify APK
+        env:
+          INSTAGRAM_VERSION: ${{ inputs.instagram_version }}
+          CLONE: ${{ inputs.clone }}
+        run: |
+          set -euo pipefail
+          test -s feurstagram.apk
+          apksigner verify --print-certs feurstagram.apk | tee "$RUNNER_TEMP/apk-certs.txt"
+          sha256sum feurstagram.apk | tee feurstagram.apk.sha256
+
+          version="$(printf '%s' "$INSTAGRAM_VERSION" | tr -cd 'A-Za-z0-9._-')"
+          [ -n "$version" ] || { echo "::error::empty instagram_version"; exit 1; }
+          suffix=""
+          if [ "$CLONE" = "true" ]; then suffix="-clone"; fi
+          out="feurstagram-${version}${suffix}.apk"
+          cp feurstagram.apk "$out"
+          echo "APK_OUT=$out" >> "$GITHUB_ENV"
+          echo "APK_SHA256=$(sha256sum feurstagram.apk | awk '{print $1}')" >> "$GITHUB_ENV"
+
+      - name: Write job summary
+        if: success()
+        env:
+          INSTAGRAM_VERSION: ${{ inputs.instagram_version }}
+          CLONE: ${{ inputs.clone }}
+        run: |
+          {
+            echo "## Gated APK build"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Instagram version (recorded): \`${INSTAGRAM_VERSION}\`"
+            echo "- Clone package: \`${CLONE}\`"
+            echo "- Artifact: \`${APK_OUT}\`"
+            echo "- SHA-256:"
+            echo '```'
+            cat feurstagram.apk.sha256
+            echo '```'
+            echo ""
+            echo "The base APK was deleted after the build. Verify the signer certificate"
+            echo "and the release decision before distributing this artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feurstagram-apk
+          path: |
+            ${{ env.APK_OUT }}
+            feurstagram.apk.sha256
+            ${{ runner.temp }}/apk-certs.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-build-log
+          path: |
+            ${{ runner.temp }}/apk-build.log
+            ${{ runner.temp }}/base-apk-certs.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove proprietary input and credentials
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/hmx-input"
+          rm -f tools/morphe-cli-pinned.jar tools/APKEditor-pinned.jar
+          rm -f "$HOME/.gradle/gradle.properties"
