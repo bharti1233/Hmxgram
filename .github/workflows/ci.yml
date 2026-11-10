@@ -54,6 +54,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list includes the obsolete "tools"
+          # package, which current sdkmanager releases no longer provide.
+          cmdline-tools-version: '20.0'
+          packages: platform-tools
+          accept-android-sdk-licenses: true
 
       - name: Install Android SDK 35 and Build Tools 35.0.0
         run: |
