@@ -184,6 +184,20 @@ fi
 if [ "$ALLOW_SIGNATURE_BYPASS" -eq 0 ]; then
     ARGS+=(-d "Signature check bypass")
 fi
+
+# Operator-selected exclusions, comma separated (DISABLE_PATCHES). Used to skip
+# a patch whose fingerprint no longer matches the pinned base. A typo is safe:
+# Morphe rejects unknown names instead of ignoring them.
+if [ -n "${DISABLE_PATCHES:-}" ]; then
+    IFS=',' read -r -a DISABLED <<< "$DISABLE_PATCHES"
+    for name in "${DISABLED[@]}"; do
+        name="${name#"${name%%[![:space:]]*}"}"
+        name="${name%"${name##*[![:space:]]}"}"
+        [ -n "$name" ] || continue
+        echo "    disabling patch: $name"
+        ARGS+=(-d "$name")
+    done
+fi
 ARGS+=("$APK")
 "$JAVA_BIN" "${ARGS[@]}"
 
