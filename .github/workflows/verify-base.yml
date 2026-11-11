@@ -1,0 +1,159 @@
+name: Verify stock APK input
+
+# Read-only verification of the proprietary base APK. This workflow never
+# patches or builds an APK. It downloads the input on the runner, verifies its
+# hash and signer, writes a text report, and deletes the APK.
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-base.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-base-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify stock Instagram APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '20.0'
+          packages: platform-tools
+          accept-android-sdk-licenses: true
+
+      - name: Install Android build tools
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "build-tools;35.0.0"
+
+      - name: Add Android build tools to PATH
+        run: echo "$ANDROID_HOME/build-tools/35.0.0" >> "$GITHUB_PATH"
+
+      - name: Download and hash the stock APK
+        env:
+          BASE_APK_URL: ${{ secrets.BASE_APK_URL }}
+          BASE_APK_SHA256: ${{ secrets.BASE_APK_SHA256 }}
+          BASE_APK_TOKEN: ${{ secrets.BASE_APK_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_APK_URL:-}" ] || [ -z "${BASE_APK_SHA256:-}" ] || [ -z "${BASE_APK_TOKEN:-}" ]; then
+            echo "::error title=Missing input secrets::Set BASE_APK_URL, BASE_APK_SHA256, and BASE_APK_TOKEN."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/hmx-verify"
+          out="$RUNNER_TEMP/hmx-verify/Instagram.apk"
+          header="$RUNNER_TEMP/hmx-verify/auth.header"
+          {
+            printf 'Authorization: Bearer %s\n' "$BASE_APK_TOKEN"
+            printf 'Accept: application/octet-stream\n'
+          } > "$header"
+          chmod 600 "$header"
+          curl --fail --location --retry 3 --retry-delay 5 \
+            --proto '=https' --tlsv1.2 --max-time 1800 \
+            --silent --show-error -H @"$header" -o "$out" "$BASE_APK_URL"
+          rm -f "$header"
+          printf '%s  %s\n' "$BASE_APK_SHA256" "$out" | sha256sum -c -
+          ls -lh "$out"
+          sha256sum "$out" | tee "$RUNNER_TEMP/hmx-verify/sha256.txt"
+          echo "BASE_APK=$out" >> "$GITHUB_ENV"
+
+      - name: Inspect package and version
+        run: |
+          set -euo pipefail
+          aapt dump badging "$BASE_APK" \
+            | grep -E "^package:|^sdkVersion|^targetSdkVersion|^native-code|^application-label:" \
+            | tee "$RUNNER_TEMP/hmx-verify/badging.txt"
+          grep -q "package: name='com.instagram.android'" "$RUNNER_TEMP/hmx-verify/badging.txt" || {
+            echo "::error::package is not com.instagram.android"
+            exit 1
+          }
+          grep -q "versionName='454.0.0.54.77'" "$RUNNER_TEMP/hmx-verify/badging.txt" || {
+            echo "::error::versionName is not 454.0.0.54.77"
+            exit 1
+          }
+          echo "::notice::Package and version match com.instagram.android 454.0.0.54.77"
+
+      - name: Inspect signer
+        run: |
+          set -euo pipefail
+          apksigner verify --verbose --print-certs "$BASE_APK" \
+            | tee "$RUNNER_TEMP/hmx-verify/certs.txt"
+          if grep -qi 'CN=Feurstagram' "$RUNNER_TEMP/hmx-verify/certs.txt"; then
+            echo "::error::APK is signed by Feurstagram, not stock Instagram"
+            exit 1
+          fi
+          if ! grep -qiE 'CN=Instagram|O=Instagram|O=Meta' "$RUNNER_TEMP/hmx-verify/certs.txt"; then
+            echo "::error::Signer DN does not look like the Instagram/Meta identity"
+            exit 1
+          fi
+          if ! grep -qE 'Verified using v[23] scheme .*: true' "$RUNNER_TEMP/hmx-verify/certs.txt"; then
+            echo "::error::APK does not have a valid v2 or v3 signature"
+            exit 1
+          fi
+          echo "::notice::Signer is not Feurstagram and has a valid v2/v3 signature"
+
+      - name: Check for FeurStagram patch markers
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/hmx-verify/markers.txt"
+          : > "$report"
+          if unzip -l "$BASE_APK" | grep -qiE 'feurstagram|morphe'; then
+            unzip -l "$BASE_APK" | grep -iE 'feurstagram|morphe' | tee -a "$report"
+          fi
+          if unzip -p "$BASE_APK" 'classes*.dex' 2>/dev/null | strings | grep -q 'Lcom/feurstagram/'; then
+            echo "dex contains Lcom/feurstagram/" | tee -a "$report"
+          fi
+          if [ -s "$report" ]; then
+            echo "::error::FeurStagram/Morphe patch markers found"
+            cat "$report"
+            exit 1
+          fi
+          echo "no FeurStagram/Morphe patch markers found" | tee "$report"
+
+      - name: Write job summary
+        if: success()
+        run: |
+          {
+            echo "## Stock APK verification"
+            echo ""
+            echo "- SHA-256: \`$(sha256sum "$BASE_APK" | awk '{print $1}')\`"
+            echo "- Package: \`com.instagram.android\`"
+            echo "- Version: \`454.0.0.54.77\`"
+            echo "- Signer:"
+            echo '```'
+            grep -E 'Signer #1 certificate (DN|SHA-256)' "$RUNNER_TEMP/hmx-verify/certs.txt" || true
+            echo '```'
+            echo "- Patch markers: none"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-apk-verification
+          path: ${{ runner.temp }}/hmx-verify/*.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove downloaded APK
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hmx-verify"
