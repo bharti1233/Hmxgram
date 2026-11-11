@@ -181,6 +181,12 @@ else
   bad "build.sh does not fail on failed patches"
 fi
 
+if grep -qF -- '-clean-meta' build.sh; then
+  note "ok: build.sh merges with APKEditor -clean-meta (strips the Play source stamp)"
+else
+  bad "build.sh must pass -clean-meta to APKEditor; without it stamp-cert-sha256 survives the merge"
+fi
+
 if grep -qF 'DISABLE_PATCHES' build.sh && grep -qF 'ARGS+=(-d "$name")' build.sh; then
   note "ok: build.sh applies DISABLE_PATCHES as -d"
 else
