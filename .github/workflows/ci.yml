@@ -29,6 +29,12 @@ jobs:
       - name: Validate repository hygiene
         run: bash scripts/ci/validate_repo.sh
 
+      - name: Test debug-release cleanup safeguards
+        run: bash scripts/ci/test_cleanup_workflow.sh
+
+      - name: Test APK publish gates
+        run: bash scripts/ci/test_publish_gates.sh
+
   bundle:
     name: Build patch bundle (.mpp)
     runs-on: ubuntu-latest

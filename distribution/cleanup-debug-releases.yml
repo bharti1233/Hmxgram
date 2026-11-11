@@ -1,0 +1,46 @@
+# Installed copy location: .github/workflows/cleanup-debug-releases.yml in
+# bharti1233/hmx-build-inputs (private). Keep this template in sync with
+# distribution/cleanup_debug_releases.sh from the Hmxgram repository.
+#
+# Deletion is gated twice:
+#   1. every manual run defaults to dry_run=true;
+#   2. actual deletion requires the repository variable
+#      CLEANUP_DELETE_ENABLED=true, so the workflow stays read-only until an
+#      operator has reviewed a dry run.
+name: Cleanup debug test releases
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report what would be deleted without deleting
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleanup-debug-releases
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Delete debug-test releases older than 72h
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PROTECTED_TAG: Apk-input-original
+          RETENTION_SECONDS: '259200'
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          DELETE_ENABLED: ${{ vars.CLEANUP_DELETE_ENABLED || 'false' }}
+        run: bash scripts/cleanup_debug_releases.sh
