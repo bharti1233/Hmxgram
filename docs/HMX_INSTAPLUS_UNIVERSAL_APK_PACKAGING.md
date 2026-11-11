@@ -140,7 +140,8 @@ The version and version code are pinned in `.github/workflows/apk.yml` as
 `build.sh` already contained the merge branch; it is now reachable and guarded:
 
 ```sh
-java -Xmx4g -jar tools/APKEditor-pinned.jar m -f -i instagram.apkm -o build/merged/instagram.apk
+java -Xmx4g -jar tools/APKEditor-pinned.jar m -f -clean-meta \
+  -i instagram.apkm -o build/merged/instagram.apk
 ```
 
 - APKEditor version: **V1.4.9** (downloaded in CI as `tools/APKEditor-pinned.jar`,
@@ -160,6 +161,15 @@ APKEditor performs all of the packaging changes that the official release shows:
 
 Do not hand-edit the manifest. If the merged output still has split metadata, the build
 fails.
+
+> **`-clean-meta` is mandatory.** `Merger.runCommand()` only calls `clearMeta()` when
+> `options.cleanMeta` is set, and `clearMeta()` is the only place that removes
+> `stamp-cert-sha256` and the original `META-INF/*.MF|SF|RSA` signatures. Without the
+> flag the merged APK keeps Meta's signatures and a stale Google Play source stamp:
+> the stamp no longer matches the certificate we sign with, Android 11+ refuses the
+> package (`INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES`), and the merge-stage
+> validator rejects it. This was the exact failure of gated run `43079743934`
+> (`ERROR: stamp-cert-sha256 is present`), which failed closed before publishing.
 
 ---
 

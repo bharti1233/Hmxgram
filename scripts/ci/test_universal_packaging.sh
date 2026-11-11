@@ -277,6 +277,18 @@ check F_split_table 1 "${BASE_ENV[@]}" MIN_RES_ENTRIES=5 \
   bash scripts/ci/validate_standalone_apk.sh --stage merge "$tmp/apk-with-split-table.apk"
 expect_log F_split_table "res/xml/splits0.xml is present"
 
+# A surviving Play source stamp means the merge ran without -clean-meta.
+# Android 11+ rejects such a package after re-signing, so it must never publish.
+python3 - "$good_apk" "$tmp/apk-with-stamp.apk" <<'PY'
+import sys, shutil, zipfile
+shutil.copyfile(sys.argv[1], sys.argv[2])
+with zipfile.ZipFile(sys.argv[2], "a") as z:
+    z.writestr("stamp-cert-sha256", b"stamp")
+PY
+check F_source_stamp 1 "${BASE_ENV[@]}" MIN_RES_ENTRIES=5 \
+  bash scripts/ci/validate_standalone_apk.sh --stage merge "$tmp/apk-with-stamp.apk"
+expect_log F_source_stamp "stamp-cert-sha256 is present"
+
 note "== G: invalid signature and wrong signer are rejected =="
 check G_bad_signature 1 "${BASE_ENV[@]}" FAKE_SIGNER_FAIL=1 MIN_RES_ENTRIES=5 \
   bash scripts/ci/validate_standalone_apk.sh --stage final "$good_apk"

@@ -147,7 +147,15 @@ case "$APK" in
             # The bundle holds base.apk plus feature/density splits; -f overwrites
             # a stale merge. Instagram's is ~400 MB, so give the JVM room. The
             # per-file merge log is noisy, so keep it on disk rather than inline.
-            if ! "$JAVA_BIN" -Xmx4g -jar "$EDITOR" m -f -i "$APK" -o "$MERGED" > "$MERGED.log" 2>&1; then
+            #
+            # -clean-meta is mandatory: Merger only calls clearMeta() when that
+            # flag is set, and clearMeta() is what removes the original
+            # META-INF/*.MF|SF|RSA signatures and the Play source stamp file
+            # "stamp-cert-sha256". Without it the merged APK keeps Meta's
+            # signatures and a stale Google source stamp, which Android 11+
+            # rejects after we re-sign (INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES)
+            # and which the standalone validator refuses to publish.
+            if ! "$JAVA_BIN" -Xmx4g -jar "$EDITOR" m -f -clean-meta -i "$APK" -o "$MERGED" > "$MERGED.log" 2>&1; then
                 echo "Error: APKEditor failed to merge $(basename "$APK")." >&2
                 echo "       Log: $MERGED.log" >&2
                 exit 1
