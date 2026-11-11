@@ -52,6 +52,11 @@ on:
         required: true
         default: false
         type: boolean
+      publish_test_apk:
+        description: Publish the throwaway-signed APK to the private input repo as a debug-test-<run>-<attempt> prerelease
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -116,6 +121,7 @@ jobs:
         env:
           BASE_APK_URL: ${{ secrets.BASE_APK_URL }}
           BASE_APK_SHA256: ${{ secrets.BASE_APK_SHA256 }}
+          BASE_APK_TOKEN: ${{ secrets.BASE_APK_TOKEN }}
           MORPHE_CLI_URL: ${{ secrets.MORPHE_CLI_URL }}
           MORPHE_CLI_SHA256: ${{ secrets.MORPHE_CLI_SHA256 }}
           MORPHE_USER: ${{ secrets.MORPHE_REGISTRY_USER }}
@@ -124,6 +130,8 @@ jobs:
           BASE_APK_KIND: ${{ inputs.base_apk_kind }}
           ALLOW_THROWAWAY: ${{ inputs.allow_throwaway_signature }}
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
+          PUBLISH_TEST_APK: ${{ inputs.publish_test_apk }}
+          DIST_TOKEN: ${{ secrets.DIST_TOKEN }}
           HAS_RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
@@ -181,6 +189,22 @@ jobs:
           if [ "$HAS_RELEASE_KEYSTORE" = "true" ]; then
             [[ "${RELEASE_CERT_SHA256:-}" =~ ^[0-9a-fA-F]{64}$ ]] || {
               echo "::error title=Missing release certificate pin::Set the apk-build environment secret RELEASE_CERT_SHA256 to the expected release signing certificate SHA-256."
+              exit 1
+            }
+          fi
+
+          # Debug-publishing policy: test signing only, throwaway-only, separate token.
+          if [ "$PUBLISH_TEST_APK" = "true" ]; then
+            [ "$ALLOW_THROWAWAY" = "true" ] || {
+              echo "::error title=Publish requires test signing::publish_test_apk requires allow_throwaway_signature=true."
+              exit 1
+            }
+            [ -n "${DIST_TOKEN:-}" ] || {
+              echo "::error title=Missing DIST_TOKEN::Set DIST_TOKEN as an apk-build environment secret (Contents: Read and write on bharti1233/hmx-build-inputs)."
+              exit 1
+            }
+            [ "${DIST_TOKEN}" != "${BASE_APK_TOKEN:-}" ] || {
+              echo "::error title=Token separation::DIST_TOKEN must be a different token from BASE_APK_TOKEN."
               exit 1
             }
           fi
@@ -434,8 +458,88 @@ jobs:
           if [ "${SIGNING_MODE}" = "throwaway" ]; then suffix="${suffix}-test"; fi
           out="feurstagram-${version}${suffix}.apk"
           cp feurstagram.apk "$out"
+          sha256sum "$out" > "$out.sha256"
+          signer="$(printf '%s\n' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          [[ "$signer" =~ ^[0-9a-fA-F]{64}$ ]] || {
+            echo "::error title=Unparseable signer::apksigner did not report a signer SHA-256 digest"
+            exit 1
+          }
           echo "APK_OUT=$out" >> "$GITHUB_ENV"
           echo "APK_SHA256=$(sha256sum feurstagram.apk | awk '{print $1}')" >> "$GITHUB_ENV"
+          echo "APK_CERT_SHA256=$signer" >> "$GITHUB_ENV"
+
+      - name: Publish throwaway test APK to private input repo
+        if: inputs.publish_test_apk
+        env:
+          DIST_TOKEN: ${{ secrets.DIST_TOKEN }}
+          BASE_APK_TOKEN: ${{ secrets.BASE_APK_TOKEN }}
+          DIST_REPO: bharti1233/hmx-build-inputs
+          PROTECTED_TAG: Apk-input-original
+          PUBLISH_TAG: debug-test-${{ github.run_id }}-${{ github.run_attempt }}
+          REQUESTED_VERSION: ${{ inputs.instagram_version }}
+        run: |
+          set -euo pipefail
+
+          # Policy gates: throwaway-only, bypass off, distinct token, guarded tag.
+          [ "${SIGNING_MODE}" = "throwaway" ] || {
+            echo "::error::Only throwaway test builds may be published"; exit 1; }
+          [ "${SIGNATURE_BYPASS:-false}" != "true" ] || {
+            echo "::error::Refusing to publish with signature bypass enabled"; exit 1; }
+          [ -n "${DIST_TOKEN:-}" ] || {
+            echo "::error::DIST_TOKEN is not configured"; exit 1; }
+          [ "${DIST_TOKEN}" != "${BASE_APK_TOKEN:-}" ] || {
+            echo "::error::DIST_TOKEN must be distinct from BASE_APK_TOKEN"; exit 1; }
+          [ "${PUBLISH_TAG}" != "${PROTECTED_TAG}" ] || {
+            echo "::error::Refusing to use the protected tag"; exit 1; }
+          [[ "${PUBLISH_TAG}" =~ ^debug-test-[0-9]+-[0-9]+$ ]] || {
+            echo "::error::Publish tag does not match debug-test-<run>-<attempt>"; exit 1; }
+
+          # Verify the exact bytes and signer against the locally generated build report.
+          sha256sum -c feurstagram.apk.sha256
+          reported_cert="$(grep -i 'Signer #1 certificate SHA-256 digest:' "$RUNNER_TEMP/apk-certs.txt" | head -1 | awk '{print $NF}')"
+          [ "$reported_cert" = "$APK_CERT_SHA256" ] || {
+            echo "::error::Build report signer does not match the verified signer"; exit 1; }
+          fresh_cert="$(apksigner verify --print-certs "$APK_OUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          [ "$fresh_cert" = "$reported_cert" ] || {
+            echo "::error::APK signer changed after verification"; exit 1; }
+          actual_sha="$(sha256sum "$APK_OUT" | awk '{print $1}')"
+          [ "$actual_sha" = "$APK_SHA256" ] || {
+            echo "::error::APK digest changed after verification"; exit 1; }
+
+          auth="$RUNNER_TEMP/dist-auth.header"
+          umask 077
+          printf 'Authorization: Bearer %s\n' "$DIST_TOKEN" > "$auth"
+          trap 'rm -f "$auth"' EXIT
+          api="https://api.github.com/repos/$DIST_REPO"
+
+          # Never overwrite: abort if the release tag already exists.
+          if [ "$(curl -sS -o /dev/null -w '%{http_code}' -H @"$auth" "$api/releases/tags/$PUBLISH_TAG")" = "200" ]; then
+            echo "::error::Release $PUBLISH_TAG already exists; refusing to overwrite"
+            exit 1
+          fi
+
+          body="$(printf 'Debug test build (throwaway signature)\n\n- Instagram version: %s\n- Commit: %s\n- Run: %s/%s/actions/runs/%s\n- APK SHA-256: %s\n- Signer (throwaway): %s\n- Signature bypass: disabled\n- Retention: deleted 72h after creation\n\nTHROWAWAY KEY - TEST ONLY - NOT FOR DISTRIBUTION' \
+            "$REQUESTED_VERSION" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$APK_SHA256" "$APK_CERT_SHA256")"
+          payload="$(jq -n --arg t "$PUBLISH_TAG" \
+            --arg n "FeurStagram debug $REQUESTED_VERSION (run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT)" \
+            --arg b "$body" \
+            '{tag_name:$t,name:$n,body:$b,prerelease:true,draft:false,make_latest:"false"}')"
+          rid="$(curl -sS --fail -X POST -H @"$auth" -H 'Accept: application/vnd.github+json' \
+            -H 'Content-Type: application/json' "$api/releases" -d "$payload" | jq -r .id)"
+
+          response="$(curl -sS --fail -X POST -H @"$auth" -H 'Accept: application/vnd.github+json' \
+            -H 'Content-Type: application/vnd.android.package-archive' \
+            --data-binary @"$APK_OUT" \
+            "https://uploads.github.com/repos/$DIST_REPO/releases/$rid/assets?name=$APK_OUT")"
+          server_digest="$(printf '%s' "$response" | jq -r '.digest // empty')"
+          if [ "$server_digest" != "sha256:$APK_SHA256" ]; then
+            echo "::error::Uploaded asset digest mismatch (server=${server_digest:-none}); rolling back"
+            curl -sS -o /dev/null -X DELETE -H @"$auth" "$api/releases/$rid" || true
+            exit 1
+          fi
+
+          echo "PUBLISHED_TAG=$PUBLISH_TAG" >> "$GITHUB_ENV"
+          echo "::notice::Published $APK_OUT as $DIST_REPO@$PUBLISH_TAG"
 
       - name: Write job summary
         if: success()
@@ -463,10 +567,17 @@ jobs:
             echo '```'
             cat feurstagram.apk.sha256
             echo '```'
-            echo ""
-            echo "The patched APK was **not uploaded**. It exists only on the ephemeral"
-            echo "runner and is deleted at the end of the job. Do not enable APK artifact"
-            echo "upload until a verified private distribution channel is configured."
+            if [ -n "${PUBLISHED_TAG:-}" ]; then
+              echo ""
+              echo "- Debug APK release: \`${PUBLISHED_TAG}\` in \`bharti1233/hmx-build-inputs\` (prerelease, deleted 72h after creation)"
+              echo "- Download: sign in as the repository owner, open the private repository's Releases page, then install the \`-test\` APK."
+              echo "- No APK was uploaded to this public repository."
+            else
+              echo ""
+              echo "The patched APK was **not uploaded**. It exists only on the ephemeral"
+              echo "runner and is deleted at the end of the job. Do not enable APK artifact"
+              echo "upload until a verified private distribution channel is configured."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # The patched APK is intentionally NOT uploaded. Actions artifacts on a
@@ -480,6 +591,7 @@ jobs:
           name: apk-build-report
           path: |
             feurstagram.apk.sha256
+            feurstagram-*.apk.sha256
             ${{ runner.temp }}/apk-certs.txt
           if-no-files-found: error
           retention-days: 7

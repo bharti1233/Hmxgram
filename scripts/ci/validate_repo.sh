@@ -105,6 +105,69 @@ else
   bad "ApkFileType.APK missing from Constants.kt"
 fi
 
+note "== Debug APK distribution safeguards =="
+for f in \
+  distribution/README.md \
+  distribution/cleanup-debug-releases.yml \
+  distribution/cleanup_debug_releases.sh \
+  scripts/ci/test_cleanup_workflow.sh \
+  scripts/ci/test_publish_gates.sh
+do
+  if [ -f "$f" ]; then note "ok: $f"; else bad "missing distribution file: $f"; fi
+done
+
+if grep -qE 'uses:[[:space:]]+[^[:space:]]+@[0-9a-f]{40}' distribution/cleanup-debug-releases.yml; then
+  note "ok: cleanup template actions are pinned to commit SHAs"
+else
+  bad "cleanup template actions are not pinned to commit SHAs"
+fi
+
+# Only the hash and certificate text reports may be uploaded as Actions artifacts.
+if grep -nE '^[[:space:]]+[^[:space:]]*\.apk[[:space:]]*$' .github/workflows/apk.yml >/dev/null; then
+  bad "apk.yml contains a bare .apk path (possible Actions artifact upload)"
+else
+  note "ok: no bare .apk path in apk.yml"
+fi
+if grep -q -- '--clobber' .github/workflows/apk.yml distribution/cleanup_debug_releases.sh; then
+  bad "release upload must never clobber an existing asset"
+else
+  note "ok: no asset clobbering"
+fi
+
+while IFS= read -r needle; do
+  if grep -qF "$needle" .github/workflows/apk.yml; then
+    note "ok: apk.yml contains: $needle"
+  else
+    bad "apk.yml is missing safeguard: $needle"
+  fi
+done <<'NEEDLES'
+publish_test_apk
+SIGNING_MODE}" = "throwaway"
+SIGNATURE_BYPASS:-false}" != "true"
+sha256sum -c feurstagram.apk.sha256
+server_digest
+DIST_TOKEN must be distinct from BASE_APK_TOKEN
+NEEDLES
+
+if grep -qE 'GITHUB_ENV.*DIST_TOKEN|DIST_TOKEN.*GITHUB_ENV' .github/workflows/apk.yml; then
+  bad "DIST_TOKEN must never be written to GITHUB_ENV"
+else
+  note "ok: DIST_TOKEN is not exported to GITHUB_ENV"
+fi
+
+if grep -qF "readonly DEBUG_TAG_RE='^debug-test-[0-9]+-[0-9]+$'" distribution/cleanup_debug_releases.sh; then
+  note "ok: cleanup tag regex is exact"
+else
+  bad "cleanup tag regex is not exactly ^debug-test-[0-9]+-[0-9]+$"
+fi
+for needle in 'Apk-input-original' 'protected_id' 'DELETE_ENABLED'; do
+  if grep -qF "$needle" distribution/cleanup_debug_releases.sh; then
+    note "ok: cleanup script guard present: $needle"
+  else
+    bad "cleanup script is missing guard: $needle"
+  fi
+done
+
 if [ "$fail" -ne 0 ]; then
   printf '\nValidation failed.\n' >&2
   exit 1
