@@ -116,7 +116,8 @@ fi
 VALIDATE_INPUT="$DIR/scripts/ci/validate_input_apk.sh"
 VALIDATE_BUNDLE="$DIR/scripts/ci/validate_bundle.sh"
 VALIDATE_STANDALONE="$DIR/scripts/ci/validate_standalone_apk.sh"
-for validator in "$VALIDATE_INPUT" "$VALIDATE_BUNDLE" "$VALIDATE_STANDALONE"; do
+VERIFY_REPORT="$DIR/scripts/ci/verify_patch_report.py"
+for validator in "$VALIDATE_INPUT" "$VALIDATE_BUNDLE" "$VALIDATE_STANDALONE" "$VERIFY_REPORT"; do
     if [ ! -f "$validator" ]; then
         echo "Error: required validator missing: $validator" >&2
         exit 1
@@ -275,8 +276,8 @@ fi
 # Surface which patches actually applied. The CLI aborts on the first failure, so
 # this is mostly a receipt — but a fingerprint that quietly stopped matching on a
 # new Instagram build is exactly the regression that shipped as issue #117.
-# A failed or missing report is a hard build failure: publishing must never
-# proceed with silently skipped patches.
+# A failed, missing, or incomplete report is a hard build failure: publishing must
+# never proceed with silently skipped patches.
 if [ ! -f "$REPORT" ]; then
     echo "Error: Morphe did not write the patch report: $REPORT" >&2
     exit 1
@@ -285,37 +286,10 @@ if ! command -v python3 >/dev/null 2>&1; then
     echo "Error: python3 is required to verify the patch report." >&2
     exit 1
 fi
-python3 - "$REPORT" <<'EOF'
-import json, os, sys
-
-report = json.load(open(sys.argv[1]))
-applied = [p.get("name") for p in report.get("appliedPatches", [])]
-failed = report.get("failedPatches", []) or []
-for patch in report.get("appliedPatches", []):
-    print(f"    ok   {patch.get('name')}")
-for patch in failed:
-    print(f"    FAIL {patch.get('name')}: {patch.get('exception') or patch.get('error') or ''}")
-
-if failed:
-    print(f"Error: {len(failed)} patch(es) failed; refusing to produce an APK.", file=sys.stderr)
-    sys.exit(1)
-if not applied:
-    print("Error: patch report contains no applied patches.", file=sys.stderr)
-    sys.exit(1)
-
-minimum = int(os.environ.get("MIN_APPLIED_PATCHES", "1") or "1")
-if len(applied) < minimum:
-    print(f"Error: only {len(applied)} patches applied, minimum is {minimum}.", file=sys.stderr)
-    sys.exit(1)
-
-disabled = {n.strip() for n in os.environ.get("DISABLE_PATCHES", "").split(",") if n.strip()}
-expected = [n.strip() for n in os.environ.get("EXPECTED_PATCHES", "").split(",") if n.strip()]
-missing = [n for n in expected if n not in applied and n not in disabled]
-if missing:
-    print(f"Error: expected patches were not applied: {', '.join(missing)}", file=sys.stderr)
-    sys.exit(1)
-print(f"    {len(applied)} patch(es) applied, 0 failed")
-EOF
+python3 "$VERIFY_REPORT" "$REPORT" || {
+    echo "Error: the patch report did not pass verification; refusing to continue." >&2
+    exit 1
+}
 
 echo "==> [3/4] Validating final standalone APK"
 if [ "$CLONE" -eq 1 ]; then
