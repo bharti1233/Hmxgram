@@ -147,6 +147,9 @@ SIGNATURE_BYPASS:-false}" != "true"
 sha256sum -c feurstagram.apk.sha256
 server_digest
 DIST_TOKEN must be distinct from BASE_APK_TOKEN
+aapt dump badging "$APK_OUT"
+APK package is not
+APK version is
 NEEDLES
 
 if grep -qE 'GITHUB_ENV.*DIST_TOKEN|DIST_TOKEN.*GITHUB_ENV' .github/workflows/apk.yml; then

@@ -477,6 +477,8 @@ jobs:
           PROTECTED_TAG: Apk-input-original
           PUBLISH_TAG: debug-test-${{ github.run_id }}-${{ github.run_attempt }}
           REQUESTED_VERSION: ${{ inputs.instagram_version }}
+          CLONE: ${{ inputs.clone }}
+          EXPECTED_PACKAGE: com.instagram.android
         run: |
           set -euo pipefail
 
@@ -505,6 +507,18 @@ jobs:
           actual_sha="$(sha256sum "$APK_OUT" | awk '{print $1}')"
           [ "$actual_sha" = "$APK_SHA256" ] || {
             echo "::error::APK digest changed after verification"; exit 1; }
+
+          # Verify the bytes about to be published identify as the expected app.
+          expected_pkg="$EXPECTED_PACKAGE"
+          if [ "${CLONE:-false}" = "true" ]; then
+            expected_pkg="com.instagram.android.feurstagram"
+          fi
+          badging="$(aapt dump badging "$APK_OUT")"
+          printf '%s\n' "$badging" | grep -qF "package: name='$expected_pkg'" || {
+            echo "::error::APK package is not $expected_pkg"; exit 1; }
+          published_version="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)"
+          [ "$published_version" = "$REQUESTED_VERSION" ] || {
+            echo "::error::APK version is '${published_version:-unknown}', expected '$REQUESTED_VERSION'"; exit 1; }
 
           auth="$RUNNER_TEMP/dist-auth.header"
           umask 077
