@@ -2,8 +2,8 @@ package com.feurstagram.patches.branding
 
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.resourcePatch
+import app.morphe.util.forEachChildElement
 import com.feurstagram.patches.shared.Constants.COMPATIBILITY_INSTAGRAM
-import com.feurstagram.util.forEachChildElement
 import org.w3c.dom.Element
 
 /** The product name shown on the launcher and in the app information screen. */
