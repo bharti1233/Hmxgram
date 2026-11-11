@@ -57,6 +57,11 @@ on:
         required: true
         default: false
         type: boolean
+      run_install_test:
+        description: Run an adb install smoke test on an attached arm64 API 35 device (GitHub-hosted runners have none; leave false and the device test is reported as pending)
+        required: true
+        default: false
+        type: boolean
       disable_patches:
         description: Comma-separated patch names to skip (for example, "Quoicouview mode")
         required: false
@@ -81,7 +86,11 @@ jobs:
     env:
       EXPECTED_INSTAGRAM_PACKAGE: com.instagram.android
       EXPECTED_INSTAGRAM_VERSION: 454.0.0.54.77
+      EXPECTED_INSTAGRAM_VERSION_CODE: '386014712'
       EXPECTED_META_CERT_SHA256: 3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014
+      MIN_RES_ENTRIES: '12000'
+      MIN_APPLIED_PATCHES: '10'
+      EXPECTED_PATCHES: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -280,40 +289,54 @@ jobs:
           printf '%s  %s\n' "$BASE_APK_SHA256" "$out" | sha256sum -c -
           echo "BASE_APK=$out" >> "$GITHUB_ENV"
 
-      - name: Verify base APK identity
+      - name: Validate input and verify base identity
         env:
           BASE_APK_KIND: ${{ inputs.base_apk_kind }}
           REQUESTED_VERSION: ${{ inputs.instagram_version }}
         run: |
           set -euo pipefail
-          if [ "$BASE_APK_KIND" != "apk" ]; then
-            echo "::error title=Unverified base type::Split bundles are not supported until merge and signer verification are implemented. Use base_apk_kind=apk with the verified single APK."
-            exit 1
-          fi
           if [ "$REQUESTED_VERSION" != "$EXPECTED_INSTAGRAM_VERSION" ]; then
             echo "::error title=Version mismatch::instagram_version must be $EXPECTED_INSTAGRAM_VERSION, the pinned and verified base."
             exit 1
           fi
 
-          badging="$(aapt dump badging "$BASE_APK")"
-          printf '%s\n' "$badging" | grep -E "^package:|^sdkVersion|^targetSdkVersion|^native-code:" || true
+          if [ "$BASE_APK_KIND" = "apk" ]; then
+            echo "==> Single APK input: rejecting bundle-derived base APKs"
+            bash scripts/ci/validate_input_apk.sh "$BASE_APK"
+            identity_apk="$BASE_APK"
+          else
+            echo "==> Split bundle input: validating completeness before merge"
+            bash scripts/ci/validate_bundle.sh "$BASE_APK" \
+              --extract-base "$RUNNER_TEMP/hmx-input/base.apk" \
+              --report "$RUNNER_TEMP/bundle-validation.txt"
+            identity_apk="$RUNNER_TEMP/hmx-input/base.apk"
+            echo "BUNDLE_BASE_APK=$identity_apk" >> "$GITHUB_ENV"
+          fi
+
+          badging="$(aapt dump badging "$identity_apk")"
+          printf '%s\n' "$badging" | grep -E "^package:|^sdkVersion|^targetSdkVersion|^native-code:|^densities:" || true
           printf '%s\n' "$badging" | grep -qF "package: name='$EXPECTED_INSTAGRAM_PACKAGE'" || {
-            echo "::error title=Wrong package::Base APK is not $EXPECTED_INSTAGRAM_PACKAGE."
+            echo "::error title=Wrong package::Base input is not $EXPECTED_INSTAGRAM_PACKAGE."
             exit 1
           }
           actual_version="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)"
+          actual_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -1)"
           if [ "$actual_version" != "$EXPECTED_INSTAGRAM_VERSION" ]; then
-            echo "::error title=Wrong version::Base APK is $actual_version, expected $EXPECTED_INSTAGRAM_VERSION."
+            echo "::error title=Wrong version::Base input is $actual_version, expected $EXPECTED_INSTAGRAM_VERSION."
+            exit 1
+          fi
+          if [ "$actual_code" != "$EXPECTED_INSTAGRAM_VERSION_CODE" ]; then
+            echo "::error title=Wrong version code::Base input is versionCode $actual_code, expected $EXPECTED_INSTAGRAM_VERSION_CODE."
             exit 1
           fi
 
-          certs="$(apksigner verify --print-certs "$BASE_APK")"
+          certs="$(apksigner verify --print-certs "$identity_apk")"
           printf '%s\n' "$certs" | grep -E "certificate (DN|SHA-256 digest):" || true
           printf '%s\n' "$certs" | grep -qi "certificate SHA-256 digest: $EXPECTED_META_CERT_SHA256" || {
-            echo "::error title=Unexpected base signer::Base APK does not carry the expected Meta certificate $EXPECTED_META_CERT_SHA256."
+            echo "::error title=Unexpected base signer::Base input does not carry the expected Meta certificate $EXPECTED_META_CERT_SHA256."
             exit 1
           }
-          echo "::notice::Base APK verified: $EXPECTED_INSTAGRAM_PACKAGE $EXPECTED_INSTAGRAM_VERSION with the expected Meta signing certificate."
+          echo "::notice::Base input verified: $EXPECTED_INSTAGRAM_PACKAGE $EXPECTED_INSTAGRAM_VERSION ($EXPECTED_INSTAGRAM_VERSION_CODE) with the expected Meta signing certificate."
 
       - name: Download pinned Morphe CLI
         env:
@@ -413,8 +436,12 @@ jobs:
           CLONE: ${{ inputs.clone }}
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
           DISABLE_PATCHES: ${{ inputs.disable_patches }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
           set -euo pipefail
+          if [ "${SIGNING_MODE:-}" = "release" ]; then
+            export EXPECTED_APK_SIGNER_SHA256="${RELEASE_CERT_SHA256:-}"
+          fi
           args=("$BASE_APK")
           if [ "$CLONE" = "true" ]; then
             args+=(--clone)
@@ -423,6 +450,24 @@ jobs:
             args+=(--allow-signature-bypass)
           fi
           bash ./build.sh "${args[@]}" 2>&1 | tee -a "$RUNNER_TEMP/apk-build.log"
+
+      - name: Validate final standalone packaging
+        env:
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
+          CLONE: ${{ inputs.clone }}
+        run: |
+          set -euo pipefail
+          if [ "$CLONE" = "true" ]; then
+            expected_pkg="com.instagram.android.feurstagram"
+          else
+            expected_pkg="com.instagram.android"
+          fi
+          args=(--stage final --expected-package "$expected_pkg" --report "$RUNNER_TEMP/standalone-validation.txt")
+          if [ "${SIGNING_MODE:-}" = "release" ]; then
+            args+=(--expected-signer "$RELEASE_CERT_SHA256")
+          fi
+          bash scripts/ci/validate_standalone_apk.sh "${args[@]}" feurstagram.apk
+          cat "$RUNNER_TEMP/standalone-validation.txt"
 
       - name: Verify APK
         env:
@@ -474,6 +519,18 @@ jobs:
           echo "APK_SHA256=$(sha256sum feurstagram.apk | awk '{print $1}')" >> "$GITHUB_ENV"
           echo "APK_CERT_SHA256=$signer" >> "$GITHUB_ENV"
 
+      - name: Install smoke test on arm64 Android 15
+        if: inputs.run_install_test
+        env:
+          CLONE: ${{ inputs.clone }}
+          EXPECTED_PACKAGE: com.instagram.android
+        run: |
+          set -euo pipefail
+          if [ "$CLONE" = "true" ]; then
+            export EXPECTED_PACKAGE=com.instagram.android.feurstagram
+          fi
+          bash scripts/ci/install_smoke_test.sh "$APK_OUT"
+
       - name: Publish throwaway test APK to private input repo
         if: inputs.publish_test_apk
         env:
@@ -519,6 +576,11 @@ jobs:
           if [ "${CLONE:-false}" = "true" ]; then
             expected_pkg="com.instagram.android.feurstagram"
           fi
+          # Defense in depth: re-validate the exact bytes about to be published.
+          bash scripts/ci/validate_standalone_apk.sh --stage final \
+            --expected-package "$expected_pkg" \
+            --expected-version "$REQUESTED_VERSION" \
+            "$APK_OUT"
           badging="$(aapt dump badging "$APK_OUT")"
           printf '%s\n' "$badging" | grep -qF "package: name='$expected_pkg'" || {
             echo "::error::APK package is not $expected_pkg"; exit 1; }
@@ -566,12 +628,14 @@ jobs:
         env:
           REQUESTED_VERSION: ${{ inputs.instagram_version }}
           CLONE: ${{ inputs.clone }}
+          RUN_INSTALL_TEST: ${{ inputs.run_install_test }}
         run: |
           {
             echo "## Gated APK build"
             echo ""
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Instagram version (verified against base): \`${REQUESTED_VERSION}\`"
+            echo "- Base input kind: \`${{ inputs.base_apk_kind }}\`"
             echo "- Clone package: \`${CLONE}\`"
             case "${SIGNING_MODE:-}" in
               release) echo "- Signing mode: **release keystore** (certificate pinned by \`RELEASE_CERT_SHA256\`)" ;;
@@ -582,6 +646,12 @@ jobs:
               true) echo "- Signature-check bypass: **ENABLED** (test build only)" ;;
               *) echo "- Signature-check bypass: **disabled**" ;;
             esac
+            if [ "${RUN_INSTALL_TEST}" = "true" ]; then
+              echo "- Device install test: **passed** on an arm64/API 35 target"
+            else
+              echo "- Device install test: **not run** (\`run_install_test=false\`); arm64 Android 15 installation remains pending verification"
+            fi
+            echo "- Standalone packaging: validated (no split metadata, merged density resources)"
             echo "- Artifact file: \`${APK_OUT}\`"
             echo "- SHA-256:"
             echo '```'
@@ -613,6 +683,7 @@ jobs:
             feurstagram.apk.sha256
             feurstagram-*.apk.sha256
             ${{ runner.temp }}/apk-certs.txt
+            ${{ runner.temp }}/standalone-validation.txt
           if-no-files-found: error
           retention-days: 7
 

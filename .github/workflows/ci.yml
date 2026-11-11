@@ -35,6 +35,9 @@ jobs:
       - name: Test APK publish gates
         run: bash scripts/ci/test_publish_gates.sh
 
+      - name: Test universal APK packaging gates
+        run: bash scripts/ci/test_universal_packaging.sh
+
   bundle:
     name: Build patch bundle (.mpp)
     runs-on: ubuntu-latest

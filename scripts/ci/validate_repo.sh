@@ -23,7 +23,13 @@ for f in \
   HMX_INSTAPLUS_SOURCE_AUDIT.md \
   HMX_INSTAPLUS_BUILD_REQUIREMENTS.md \
   HMX_INSTAPLUS_SECURITY_AUDIT.md \
-  HMX_INSTAPLUS_CI_PLAN.md
+  HMX_INSTAPLUS_CI_PLAN.md \
+  docs/HMX_INSTAPLUS_UNIVERSAL_APK_PACKAGING.md \
+  scripts/ci/validate_input_apk.sh \
+  scripts/ci/validate_bundle.sh \
+  scripts/ci/validate_standalone_apk.sh \
+  scripts/ci/install_smoke_test.sh \
+  scripts/ci/test_universal_packaging.sh
  do
   if [ -f "$f" ]; then note "ok: $f"; else bad "missing required file: $f"; fi
 done
@@ -76,7 +82,7 @@ else
 fi
 
 note "== Executable modes =="
-for f in gradlew build.sh; do
+for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"
   if [ "$mode" = "100755" ]; then note "ok: $f is executable in git"; else bad "$f must be mode 100755 (found $mode)"; fi
 done
@@ -152,7 +158,28 @@ APK package is not
 APK version is
 disable_patches
 DISABLE_PATCHES
+validate_input_apk.sh
+validate_bundle.sh
+validate_standalone_apk.sh
+install_smoke_test.sh
+EXPECTED_INSTAGRAM_VERSION_CODE
+run_install_test
 NEEDLES
+
+if grep -qF 'bash "$VALIDATE_INPUT"' build.sh && \
+   grep -qF 'bash "$VALIDATE_BUNDLE"' build.sh && \
+   grep -qF 'bash "$VALIDATE_STANDALONE" --stage merge' build.sh && \
+   grep -qF 'bash "$VALIDATE_STANDALONE" --stage final' build.sh; then
+  note "ok: build.sh enforces input, bundle, merge, and final validation"
+else
+  bad "build.sh does not enforce the standalone packaging validators"
+fi
+
+if grep -qF 'failedPatches' build.sh; then
+  note "ok: build.sh fails on a patch report with failed patches"
+else
+  bad "build.sh does not fail on failed patches"
+fi
 
 if grep -qF 'DISABLE_PATCHES' build.sh && grep -qF 'ARGS+=(-d "$name")' build.sh; then
   note "ok: build.sh applies DISABLE_PATCHES as -d"
