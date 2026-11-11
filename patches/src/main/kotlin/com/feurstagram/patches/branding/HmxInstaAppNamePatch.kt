@@ -72,7 +72,7 @@ val hmxInstaAppNamePatch = resourcePatch(
                         }
                     }
                 }
-            } catch (Throwable t) {
+            } catch (t: Throwable) {
                 println("[HMX Insta branding] the string table could not be read: $t")
             }
         }
