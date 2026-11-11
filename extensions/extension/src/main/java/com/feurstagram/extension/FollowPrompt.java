@@ -95,7 +95,7 @@ public final class FollowPrompt {
             ScrollView bodyScroll = new ScrollView(context);
             bodyScroll.setVerticalScrollBarEnabled(false);
             TextView body = new TextView(context);
-            body.setText("@feurstagram_off is Feurstagram's official Instagram account. "
+            body.setText("Follow the project's official Instagram account for news. "
                     + "Follow it to get a story every time a new version is out: new features, "
                     + "fixes and Instagram updates.");
             Settings.body(body);

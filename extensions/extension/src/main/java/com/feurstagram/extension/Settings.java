@@ -167,7 +167,7 @@ public final class Settings {
             styleWindow(dialog, Color.TRANSPARENT, 0f);
             dialog.show();
         } catch (Throwable t) {
-            Toast.makeText(context, "Feurstagram settings unavailable here", Toast.LENGTH_LONG).show();
+            Toast.makeText(context, "HMX Insta settings unavailable here", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -482,7 +482,7 @@ public final class Settings {
         void showOverview(boolean animate) {
             dialog.onBack = null;
             back.setVisibility(View.GONE);
-            title.setText("Feurstagram");
+            title.setText("HMX Insta");
             subtitle.setText(hardcore
                     ? "Permanent lock is on. You can tighten blocks but not loosen them. "
                             + "Reinstall to fully unlock."
@@ -636,11 +636,8 @@ public final class Settings {
         addSectionRow(context, app, "moon", "Display and popups", displaySummary(),
                 () -> pages.open("Display and popups", "How Instagram looks and talks to you.",
                         Settings::buildDisplay));
-        addSectionRow(context, app, "download", "Updates",
-                Config.isAutoUpdateEnabled() ? "Automatic check on" : "Automatic check off",
-                () -> pages.open("Updates", "Keep Feurstagram current.", Settings::buildUpdates));
-        addSectionRow(context, app, "heart", "Support", "Help keep the project going",
-                () -> pages.open("Support", "Feurstagram is free and open source.", Settings::buildSupport));
+        addSectionRow(context, app, "info", "About HMX Insta", "HMX Insta by HMXPanel",
+                () -> pages.open("About HMX Insta", "HMX Insta by HMXPanel.", Settings::buildAbout));
         sealGroup(context, app);
     }
 
@@ -748,25 +745,64 @@ public final class Settings {
         sealGroup(context, display);
     }
 
-    private static void buildUpdates(Context context, LinearLayout column) {
-        LinearLayout updates = addGroup(context, column);
-        addRow(context, updates, "Automatic update check", "auto_update", Config.isAutoUpdateEnabled());
-        sealGroup(context, updates);
+    /**
+     * The About page: who ships this build, which version it is, where the
+     * source lives and where updates come from.
+     *
+     * The upstream project's donation links are gone with the rest of the
+     * FeurStagram branding; the attribution that GPL-3.0 requires stays here.
+     */
+    private static void buildAbout(Context context, LinearLayout column) {
+        LinearLayout about = addGroup(context, column);
 
-        Button checkUpdate = makeButton(context, "Check for updates", SURFACE_CONTAINER_HIGH, ON_SURFACE, true);
-        checkUpdate.setOnClickListener(v -> UpdateChecker.checkNow(context));
-        column.addView(checkUpdate, stackedButtonParams(context, 12));
+        TextView name = new TextView(context);
+        name.setText("HMX Insta");
+        titleLarge(name);
+        about.addView(name);
+
+        TextView version = new TextView(context);
+        version.setText(installedVersion(context));
+        body(version);
+        version.setPadding(0, dp(context, 4), 0, 0);
+        about.addView(version);
+
+        TextView publisher = new TextView(context);
+        publisher.setText("Published by HMXPanel.");
+        body(publisher);
+        publisher.setPadding(0, dp(context, 12), 0, 0);
+        about.addView(publisher);
+
+        TextView attribution = new TextView(context);
+        attribution.setText("HMX Insta is built on FeurStagram, which is free and open "
+                + "source under the GNU General Public License v3. FeurStagram and its "
+                + "contributors are the original authors of the patches and the companion app.");
+        body(attribution);
+        attribution.setPadding(0, dp(context, 12), 0, 0);
+        about.addView(attribution);
+
+        TextView updates = new TextView(context);
+        updates.setText("Updates are published by HMXPanel. This build does not check for "
+                + "updates on its own: install a new release when one is published.");
+        body(updates);
+        updates.setPadding(0, dp(context, 12), 0, 0);
+        about.addView(updates);
+
+        sealGroup(context, about);
+
+        Button source = makeButton(context, "Source code", SURFACE_CONTAINER_HIGH, ON_SURFACE, true);
+        source.setOnClickListener(v -> openUrl(context, "https://github.com/bharti1233/Hmxgram"));
+        column.addView(source, stackedButtonParams(context, 12));
     }
 
-    private static void buildSupport(Context context, LinearLayout column) {
-        Button sponsors = makeButton(context, "Donate on GitHub Sponsors", 0, ON_SURFACE, false);
-        sponsors.setBackground(outlined(context, OUTLINE_VARIANT));
-        sponsors.setOnClickListener(v -> openUrl(context, "https://github.com/sponsors/jean-voila"));
-        column.addView(sponsors, stackedButtonParams(context, 16));
-
-        Button coffee = makeButton(context, "☕  Buy me a coffee", SURFACE_CONTAINER_HIGH, ON_SURFACE, true);
-        coffee.setOnClickListener(v -> openUrl(context, "https://buymeacoffee.com/jean_voila"));
-        column.addView(coffee, stackedButtonParams(context, 10));
+    /** The installed base version, e.g. "Version 454.0.0.54.77". */
+    private static String installedVersion(Context context) {
+        try {
+            String name = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0).versionName;
+            return name == null ? "Version unknown" : "Version " + name;
+        } catch (Throwable t) {
+            return "Version unknown";
+        }
     }
 
     private static String displaySummary() {
@@ -982,7 +1018,7 @@ public final class Settings {
             return;
         }
         showConfirm(context, "Restart Instagram?",
-                "Feurstagram will clear the cache and restart the app to apply your changes.",
+                "HMX Insta will clear the cache and restart the app to apply your changes.",
                 "Restart", PRIMARY, ON_PRIMARY,
                 () -> CacheCleaner.clearAndRestart(context));
     }

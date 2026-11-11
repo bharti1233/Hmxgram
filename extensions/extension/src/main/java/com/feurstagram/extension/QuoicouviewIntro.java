@@ -105,7 +105,7 @@ public final class QuoicouviewIntro {
             TextView body = new TextView(context);
             body.setText("Make Messages your main page, with the stories of the people you follow "
                     + "on top. Home is turned off. You can switch it at any time, first thing in "
-                    + "the Feurstagram settings.");
+                    + "the HMX Insta settings.");
             Settings.body(body);
             body.setPadding(0, Settings.dp(context, 10), 0, 0);
             card.addView(body);

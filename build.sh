@@ -174,6 +174,21 @@ case "$APK" in
         ;;
 esac
 
+# The launcher artwork is ours, not Instagram's: the adaptive icon layers are
+# replaced with the official HMX Insta logo before the patcher sees the APK.
+# The app name itself is set by the "HMX Insta app name" patch.
+BRANDING_ASSETS="$DIR/patches/src/main/resources/branding"
+if [ ! -d "$BRANDING_ASSETS" ] || [ ! -f "$BRANDING_ASSETS/foreground-xxxhdpi.png" ]; then
+    echo "Error: the launcher branding assets are missing: $BRANDING_ASSETS" >&2
+    echo "       Regenerate them with: python3 scripts/branding/generate_launcher_icons.py" >&2
+    exit 1
+fi
+echo "==> [0/4] Applying HMX Insta launcher branding"
+python3 "$DIR/scripts/branding/apply_launcher_branding.py" "$APK" "$BRANDING_ASSETS" || {
+    echo "Error: could not apply the launcher branding; refusing to patch an Instagram-branded APK." >&2
+    exit 1
+}
+
 # The merged/patch input must be a genuinely standalone APK: no split metadata,
 # merged density payload, readable resource table, expected identity.
 echo "==> [0/4] Validating standalone packaging of $(basename "$APK")"

@@ -90,7 +90,7 @@ jobs:
       EXPECTED_META_CERT_SHA256: 3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014
       MIN_RES_ENTRIES: '12000'
       MIN_APPLIED_PATCHES: '10'
-      EXPECTED_PATCHES: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission'
+      EXPECTED_PATCHES: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -507,7 +507,7 @@ jobs:
           suffix=""
           if [ "$CLONE" = "true" ]; then suffix="-clone"; fi
           if [ "${SIGNING_MODE}" = "throwaway" ]; then suffix="${suffix}-test"; fi
-          out="feurstagram-${version}${suffix}.apk"
+          out="hmx-insta-${version}${suffix}.apk"
           cp feurstagram.apk "$out"
           sha256sum "$out" > "$out.sha256"
           signer="$(printf '%s\n' "$certs" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
@@ -603,7 +603,7 @@ jobs:
           body="$(printf 'Debug test build (throwaway signature)\n\n- Instagram version: %s\n- Commit: %s\n- Run: %s/%s/actions/runs/%s\n- APK SHA-256: %s\n- Signer (throwaway): %s\n- Signature bypass: disabled\n- Retention: deleted 72h after creation\n\nTHROWAWAY KEY - TEST ONLY - NOT FOR DISTRIBUTION' \
             "$REQUESTED_VERSION" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$APK_SHA256" "$APK_CERT_SHA256")"
           payload="$(jq -n --arg t "$PUBLISH_TAG" \
-            --arg n "FeurStagram debug $REQUESTED_VERSION (run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT)" \
+            --arg n "HMX Insta debug $REQUESTED_VERSION (run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT)" \
             --arg b "$body" \
             '{tag_name:$t,name:$n,body:$b,prerelease:true,draft:false,make_latest:"false"}')"
           rid="$(curl -sS --fail -X POST -H @"$auth" -H 'Accept: application/vnd.github+json' \

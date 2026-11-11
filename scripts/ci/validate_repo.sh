@@ -31,7 +31,14 @@ for f in \
   scripts/ci/install_smoke_test.sh \
   scripts/ci/test_universal_packaging.sh \
   scripts/ci/verify_patch_report.py \
-  scripts/ci/test_patch_report.sh
+  scripts/ci/test_patch_report.sh \
+  scripts/ci/validate_branding.sh \
+  scripts/branding/pngtool.py \
+  scripts/branding/generate_launcher_icons.py \
+  scripts/branding/apply_launcher_branding.py \
+  docs/HMX_INSTA_REBRANDING_AUDIT.md \
+  docs/HMX_INSTA_BRANDING_GUIDE.md \
+  docs/HMX_INSTA_UPDATER.md
  do
   if [ -f "$f" ]; then note "ok: $f"; else bad "missing required file: $f"; fi
 done
@@ -84,7 +91,7 @@ else
 fi
 
 note "== Executable modes =="
-for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh; do
+for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"
   if [ "$mode" = "100755" ]; then note "ok: $f is executable in git"; else bad "$f must be mode 100755 (found $mode)"; fi
 done
@@ -188,6 +195,18 @@ if grep -qF -- '-clean-meta' build.sh; then
   note "ok: build.sh merges with APKEditor -clean-meta (strips the Play source stamp)"
 else
   bad "build.sh must pass -clean-meta to APKEditor; without it stamp-cert-sha256 survives the merge"
+fi
+
+if grep -qF 'apply_launcher_branding.py' build.sh; then
+  note "ok: build.sh applies the HMX Insta launcher branding"
+else
+  bad "build.sh does not apply the launcher branding"
+fi
+
+if grep -qF 'HMX Insta app name' .github/workflows/apk.yml; then
+  note "ok: apk.yml expects the HMX Insta app name patch"
+else
+  bad "apk.yml must expect the HMX Insta app name patch"
 fi
 
 if grep -qF 'DISABLE_PATCHES' build.sh && grep -qF 'ARGS+=(-d "$name")' build.sh; then
