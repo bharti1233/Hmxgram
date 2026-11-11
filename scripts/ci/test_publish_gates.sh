@@ -38,6 +38,12 @@ echo "Signer #1 certificate SHA-256 digest: $APK_CERT_SHA256"
 EOS
 chmod +x "$tmp/bin/apksigner"
 
+cat > "$tmp/bin/aapt" <<'EOS'
+#!/usr/bin/env bash
+echo "package: name='${FAKE_PKG:-com.instagram.android}' versionCode='1' versionName='${FAKE_VERSION:-1.0}'"
+EOS
+chmod +x "$tmp/bin/aapt"
+
 cat > "$tmp/bin/curl" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -76,6 +82,7 @@ run_case() {
       DIST_TOKEN=dist-token BASE_APK_TOKEN=base-token \
       DIST_REPO=owner/repo PROTECTED_TAG=Apk-input-original \
       PUBLISH_TAG=debug-test-1-1 REQUESTED_VERSION=1.0 \
+      EXPECTED_PACKAGE=com.instagram.android CLONE=false \
       GITHUB_SHA=deadbeef GITHUB_SERVER_URL=https://github.com \
       GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=1 GITHUB_RUN_ATTEMPT=1 \
       "$@" bash "$SCRIPT" > "$tmp/$name.log" 2>&1 )
@@ -116,6 +123,18 @@ expect_log digest_mismatch "APK digest changed after verification"
 run_case cert_mismatch APK_CERT_SHA256=1111111111111111111111111111111111111111111111111111111111111111
 expect_rc cert_mismatch 1
 expect_log cert_mismatch "Build report signer does not match"
+
+run_case wrong_package FAKE_PKG=com.instagram.android.feurstagram
+expect_rc wrong_package 1
+expect_log wrong_package "APK package is not com.instagram.android"
+
+run_case wrong_version FAKE_VERSION=9.9.9
+expect_rc wrong_version 1
+expect_log wrong_version "APK version is '9.9.9', expected '1.0'"
+
+run_case clone_success CLONE=true FAKE_PKG=com.instagram.android.feurstagram
+expect_rc clone_success 0
+expect_log clone_success "Published $apk as owner/repo@debug-test-1-1"
 
 run_case success
 expect_rc success 0
