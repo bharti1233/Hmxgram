@@ -57,6 +57,11 @@ on:
         required: true
         default: false
         type: boolean
+      disable_patches:
+        description: Comma-separated patch names to skip (for example, "Quoicouview mode")
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -407,6 +412,7 @@ jobs:
         env:
           CLONE: ${{ inputs.clone }}
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
+          DISABLE_PATCHES: ${{ inputs.disable_patches }}
         run: |
           set -euo pipefail
           args=("$BASE_APK")

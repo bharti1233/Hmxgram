@@ -150,7 +150,15 @@ DIST_TOKEN must be distinct from BASE_APK_TOKEN
 aapt dump badging "$APK_OUT"
 APK package is not
 APK version is
+disable_patches
+DISABLE_PATCHES
 NEEDLES
+
+if grep -qF 'DISABLE_PATCHES' build.sh && grep -qF 'ARGS+=(-d "$name")' build.sh; then
+  note "ok: build.sh applies DISABLE_PATCHES as -d"
+else
+  bad "build.sh does not apply DISABLE_PATCHES"
+fi
 
 if grep -qE 'GITHUB_ENV.*DIST_TOKEN|DIST_TOKEN.*GITHUB_ENV' .github/workflows/apk.yml; then
   bad "DIST_TOKEN must never be written to GITHUB_ENV"
