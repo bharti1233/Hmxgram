@@ -146,6 +146,38 @@ Send `Authorization: Bearer <token>` and `Accept: application/octet-stream`. The
 
 Do not scrape APKPure or APKMirror from CI. Both are protected by Cloudflare challenge pages; bypassing those protections is out of scope and unreliable.
 
+### The release tag may not be the one you expect
+
+Check every release, not just the tag you intended to use:
+
+```bash
+curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/OWNER/REPO/releases?per_page=20" \
+  | python3 -c 'import sys,json; [print(r["tag_name"], len(r["assets"])) for r in json.load(sys.stdin)]'
+```
+
+The Hmxgram stock APK landed under the tag `Apk-input-original`, while a separate empty prerelease named `apk-input` also exists. Querying only `releases/tags/apk-input` reports `assets: 0`, which looks like a missing upload. Always cross-check the release list before concluding the upload failed.
+
+### Verified stock input
+
+The verified base APK, recorded for future checks:
+
+```text
+asset:       Instagram.apk (ID 734297498, 259,865,899 bytes)
+SHA-256:     b334feef23722f0364a80c2c9e99af48e0c460cc652213d3f1a919f2007e5136
+package:     com.instagram.android
+versionName: 454.0.0.54.77
+versionCode: 386014758
+native-code: arm64-v8a
+signer DN:   C=US, ST=California, L=Menlo Park, O=Meta Platforms Inc., OU=Meta Mobile, CN=Meta Platforms Inc.
+signer SHA-256: 3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014
+```
+
+`apksigner` reports v3 and v3.1 as verified and v1/v2 as false. That is normal for a modern Play build with `minSdkVersion=28`; do not treat the missing v1/v2 as a tampering signal.
+
+The `.github/workflows/verify-base.yml` workflow re-runs these checks on a hosted runner and uploads only a text report. It never patches or uploads the APK.
+
 ### Installed APK is not a stock base
 
 The APK installed on the development device is version `454.0.0.54.77`, but its signer is:
