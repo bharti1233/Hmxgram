@@ -16,6 +16,9 @@ This document records the failures observed during the first Phase 1 CI runs, th
 | APK workflow rejects the installed APK | The installed APK is already patched and signed by `CN=Feurstagram` | Use a genuine stock, Meta-signed APK |
 | `workflow_dispatch` does not appear | The workflow is not on the default branch | Merge the workflow to `main` first |
 | A push to the PR branch shows no new run immediately | GitHub Actions registration delay | Wait and re-check the run list |
+| `Classic token scopes detected` | `BASE_APK_TOKEN` is a broad classic PAT | Replace it with a fine-grained token, Contents: Read on the input repo |
+| `allow_signature_bypass may only be used together with allow_throwaway_signature` | Bypass requested for a release-style build | Leave it false, or set both throwaway and bypass for a test build |
+| Successful APK run has no APK artifact | Intentional: APK upload is disabled | Use a private distribution channel; only the text report is uploaded |
 
 ## 1. Android SDK setup failed on the obsolete `tools` package
 
@@ -164,7 +167,7 @@ The Hmxgram stock APK landed under the tag `Apk-input-original`, while a separat
 The verified base APK, recorded for future checks:
 
 ```text
-asset:       Instagram.apk (ID 734297498, 259,865,899 bytes)
+asset:       Instagram.apk (ID redacted, 259,865,899 bytes)
 SHA-256:     b334feef23722f0364a80c2c9e99af48e0c460cc652213d3f1a919f2007e5136
 package:     com.instagram.android
 versionName: 454.0.0.54.77
@@ -212,12 +215,100 @@ Rotate any token that was shared in chat after the CI setup is complete. Do not 
 
 The APK workflow has two signing paths:
 
-1. **Release**: `RELEASE_KEYSTORE_BASE64` and `RELEASE_KEYSTORE_PASS` (plus optional `RELEASE_KEY_PASS` and `RELEASE_KEY_ALIAS`). The APK is built unsigned and signed with `apksigner` using v1/v2/v3.
-2. **Debug/test**: `allow_throwaway_signature=true`. The Morphe CLI signs with a throwaway key. This artifact must not be distributed or presented as a release.
+1. **Release**: `RELEASE_KEYSTORE_BASE64` and `RELEASE_KEYSTORE_PASS` (plus optional `RELEASE_KEY_PASS` and `RELEASE_KEY_ALIAS`). The APK is built unsigned and signed with `apksigner` using v1/v2/v3. The output must present `RELEASE_CERT_SHA256`.
+2. **Debug/test**: `allow_throwaway_signature=true`. The Morphe CLI signs with a throwaway key. The output name gets a `-test` suffix and the artifact must not be distributed.
 
-The workflow never prints the keystore password. The temporary keystore and downloaded base APK are removed in the cleanup step.
+The workflow never prints the keystore password. The temporary keystore, downloaded base APK, and patched APK are removed in the cleanup step.
 
-## 8. Reproducing the checks locally
+## 8. `APK workflow` rejects the asset token
+
+### Symptom
+
+The gated job fails at `Enforce least-privilege private-asset token`:
+
+```text
+Classic token scopes detected: repo, workflow, write:packages
+Error: BASE_APK_TOKEN is a classic PAT with broad scopes.
+```
+
+### Cause
+
+`BASE_APK_TOKEN` is meant to read one private release asset. A classic PAT
+needs the broad `repo` scope for a private repository, which grants far more
+than that, and it can also push code and dispatch workflows.
+
+### Fix
+
+Create a **fine-grained** personal access token:
+
+- Repository access: only `bharti1233/hmx-build-inputs`.
+- Repository permissions: **Contents: Read** (nothing else).
+- No organization or account permissions.
+
+Store it as the `apk-build` **environment** secret `BASE_APK_TOKEN`. The
+workflow detects classic scope headers and refuses to continue; fine-grained
+and GitHub App tokens have no classic scope header and pass.
+
+## 9. Signature-check bypass failures
+
+### Symptom
+
+The job fails before downloading the base APK:
+
+```text
+allow_signature_bypass may only be used together with allow_throwaway_signature=true.
+```
+
+or, for a release build:
+
+```text
+A release keystore is configured ... must not enable the signature-check bypass.
+```
+
+### Cause
+
+`SignatureCheckBypassPatch` is default-enabled in the patch bundle, so the
+build must explicitly opt out. The workflow and `build.sh` enforce the policy:
+
+- `allow_signature_bypass` defaults to `false`;
+- enabling it requires throwaway signing;
+- release keystore builds can never enable it;
+- `build.sh` passes `-d "Signature check bypass"` unless
+  `--allow-signature-bypass` is supplied, and refuses that flag when release
+  keystore signing is active.
+
+### Fix
+
+For a normal or release build, leave both flags at their defaults. To test deep
+links with a throwaway key, set `allow_throwaway_signature=true` and
+`allow_signature_bypass=true`; expect a `-test` output and a warning in the
+summary.
+
+## 10. Patched APK is not uploaded
+
+### Symptom
+
+A successful run has no APK artifact, only `apk-build-report`.
+
+### Cause
+
+Intentional. Actions artifacts on a public repository are not private storage,
+and the patched APK contains proprietary Meta code. Uploading it would be
+public distribution.
+
+### Fix
+
+Do not re-enable APK upload until a verified private distribution channel
+exists. The text report (SHA-256 and signer certificate) is enough to record
+build provenance.
+
+## 11. `verify-base.yml` waits for approval
+
+`verify-base.yml` runs only from `main` and uses the `apk-build` environment, so
+the private asset token stays in environment scope. A run that changes the
+workflow file waits for the required reviewer before executing.
+
+## 12. Reproducing the checks locally
 
 Only lightweight, non-build checks should be run on a low-resource device:
 

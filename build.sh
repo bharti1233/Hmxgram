@@ -3,6 +3,7 @@
 # Feurstagram build pipeline.
 #
 #   ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug]
+#                [--allow-signature-bypass]
 #
 # Builds the patch bundle (.mpp) from the Gradle project, then applies it to the
 # given Instagram APK with the local Morphe CLI, producing ./feurstagram.apk.
@@ -10,6 +11,10 @@
 #   --install   install the result on the connected ADB device
 #   --debug     enable the Debug bridge patch: the settings become drivable over
 #               ADB broadcasts (see extensions/.../DebugBridge.java). Never ship it.
+#   --allow-signature-bypass
+#               keep the "Signature check bypass" patch. The patch is DISABLED
+#               by default; enable it only for throwaway-signed test builds.
+#               It is refused when signing with the release keystore.
 #
 # Split bundles: an APKMirror .apkm (or .xapk/.apks) is a zip of base.apk plus
 # split APKs. The Morphe CLI patches one APK, so those are merged into a single
@@ -76,17 +81,19 @@ APK=""
 CLONE=0
 INSTALL=0
 DEBUG=0
+ALLOW_SIGNATURE_BYPASS=0
 for arg in "$@"; do
     case "$arg" in
         --clone) CLONE=1 ;;
         --install) INSTALL=1 ;;
         --debug) DEBUG=1 ;;
+        --allow-signature-bypass) ALLOW_SIGNATURE_BYPASS=1 ;;
         *) APK="$arg" ;;
     esac
 done
 
 if [ -z "$APK" ] || [ ! -f "$APK" ]; then
-    echo "usage: ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug]" >&2
+    echo "usage: ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug] [--allow-signature-bypass]" >&2
     exit 1
 fi
 if [ -z "$CLI" ]; then
@@ -134,6 +141,11 @@ fi
 echo "    bundle: $MPP"
 
 echo "==> [2/3] Applying to $(basename "$APK")"
+if [ "$ALLOW_SIGNATURE_BYPASS" -eq 1 ]; then
+    echo "    !! signature-check bypass ENABLED (test builds only)"
+else
+    echo "    signature-check bypass disabled"
+fi
 # Scratch files are purged by default in the CLI; -r writes a JSON report of each
 # patch step so a fingerprint that stopped matching is visible instead of silent.
 REPORT="$DIR/build/patch-report.json"
@@ -158,6 +170,19 @@ if [ -n "${FEURSTAGRAM_KEYSTORE_PASS:-}" ]; then
     fi
     SIGN_WITH_APKSIGNER=1
     ARGS+=(--unsigned)
+fi
+
+# The signature-check bypass rewrites Instagram's integrity allowlist. It is a
+# test-only affordance: refuse to combine it with release keystore signing.
+if [ "$ALLOW_SIGNATURE_BYPASS" -eq 1 ] && [ "$SIGN_WITH_APKSIGNER" -eq 1 ]; then
+    echo "Error: --allow-signature-bypass is test-only and cannot be used with the release keystore." >&2
+    exit 1
+fi
+
+# Morphe applies every default-enabled patch unless it is explicitly disabled.
+# The bypass is default-enabled, so opt out here unless the caller asked for it.
+if [ "$ALLOW_SIGNATURE_BYPASS" -eq 0 ]; then
+    ARGS+=(-d "Signature check bypass")
 fi
 ARGS+=("$APK")
 "$JAVA_BIN" "${ARGS[@]}"

@@ -50,6 +50,31 @@ else
   note "ok: no credential-like patterns in tracked files"
 fi
 
+note "== Private asset identifiers =="
+# Private GitHub release asset IDs are the value of BASE_APK_URL; do not publish them.
+asset_ids="$(git grep -lE 'releases/assets/[0-9]+' -- . ':!scripts/ci/validate_repo.sh' || true)"
+if [ -n "$asset_ids" ]; then
+  bad "private release asset IDs found in tracked files (paths only):"
+  printf '%s\n' "$asset_ids" >&2
+else
+  note "ok: no private release asset IDs in tracked files"
+fi
+
+note "== Third-party actions pinned to commit SHAs =="
+unpinned=""
+while IFS= read -r use; do
+  ref="${use##*@}"
+  if ! printf '%s' "$ref" | grep -qE '^[0-9a-f]{40}$'; then
+    unpinned+="$use"$'\n'
+  fi
+done < <(grep -rhoE 'uses:[[:space:]]+[^[:space:]]+@[^[:space:]]+' .github/workflows || true)
+if [ -n "$unpinned" ]; then
+  bad "workflow actions are not pinned to full commit SHAs:"
+  printf '%s' "$unpinned" >&2
+else
+  note "ok: all workflow actions use full commit SHAs"
+fi
+
 note "== Executable modes =="
 for f in gradlew build.sh; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"

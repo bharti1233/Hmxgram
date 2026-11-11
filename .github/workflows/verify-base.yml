@@ -2,10 +2,14 @@ name: Verify stock APK input
 
 # Read-only verification of the proprietary base APK. This workflow never
 # patches or builds an APK. It downloads the input on the runner, verifies its
-# hash and signer, writes a text report, and deletes the APK.
+# hash, package, version and signer, writes a text report, and deletes the APK.
+#
+# It runs only from main and uses the apk-build environment so the private
+# asset token lives in environment scope, not repository scope.
 
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/verify-base.yml'
   workflow_dispatch:
@@ -22,18 +26,20 @@ jobs:
     name: Verify stock Instagram APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: github.ref == 'refs/heads/main'
+    environment: apk-build
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           cmdline-tools-version: '20.0'
           packages: platform-tools
@@ -56,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${BASE_APK_URL:-}" ] || [ -z "${BASE_APK_SHA256:-}" ] || [ -z "${BASE_APK_TOKEN:-}" ]; then
-            echo "::error title=Missing input secrets::Set BASE_APK_URL, BASE_APK_SHA256, and BASE_APK_TOKEN."
+            echo "::error title=Missing input secrets::Set BASE_APK_URL, BASE_APK_SHA256, and BASE_APK_TOKEN as apk-build environment secrets."
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/hmx-verify"
@@ -105,11 +111,15 @@ jobs:
             echo "::error::Signer DN does not look like the Instagram/Meta identity"
             exit 1
           fi
+          if ! grep -q 'certificate SHA-256 digest: 3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014' "$RUNNER_TEMP/hmx-verify/certs.txt"; then
+            echo "::error::Expected Meta certificate 3a10c50c...c014 not found"
+            exit 1
+          fi
           if ! grep -qE 'Verified using v[23] scheme .*: true' "$RUNNER_TEMP/hmx-verify/certs.txt"; then
             echo "::error::APK does not have a valid v2 or v3 signature"
             exit 1
           fi
-          echo "::notice::Signer is not Feurstagram and has a valid v2/v3 signature"
+          echo "::notice::Signer is the expected Meta certificate with a valid v3 signature"
 
       - name: Check for FeurStagram patch markers
         run: |
@@ -147,7 +157,7 @@ jobs:
 
       - name: Upload verification report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: base-apk-verification
           path: ${{ runner.temp }}/hmx-verify/*.txt

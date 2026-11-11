@@ -3,10 +3,8 @@
 **Date:** 2026-11-11
 **Repository:** `bharti1233/Hmxgram`
 **Branch:** `ci/phase1-baseline`
-**Commit:** `a27aff1` (`a27aff1` = head of PR #1 at the time of this report)
 **Pull request:** https://github.com/bharti1233/Hmxgram/pull/1
-**CI run:** https://github.com/bharti1233/Hmxgram/actions/runs/42968227013
-**Stock APK verification run:** https://github.com/bharti1233/Hmxgram/actions/runs/42968215698
+**CI runs:** linked from the PR checks; this document is updated alongside the branch.
 
 ## Status
 
@@ -14,58 +12,24 @@
 | --- | --- |
 | Repository validation | **Success** |
 | Build patch bundle (`.mpp`) | **Success** |
-| Artifact upload | **Success** |
+| Artifact upload (`.mpp` only) | **Success** |
 | Stock APK verification | **Success** |
-| APK build | **Not run** — workflow is ready but must be dispatched from `main` |
+| APK build | **Not run** — workflow is ready but must be dispatched from `main` after merge |
+| APK artifact upload | **Disabled by design** — see “APK artifact policy” |
 | Local Gradle/APK build | **None performed** |
 
 The `.mpp` bundle is a patch artifact, not an APK. A successful `.mpp` build does **not** mean an installable APK was produced. The stock APK verification proves the *input*, not the patched output.
 
-## Verified CI result
+## Verified stock APK input
 
-- Workflow: `CI`
-- Event: `pull_request`
-- Head SHA: `a27aff1`
-- Conclusion: **success**
-
-| Job | Result | Job URL |
-| --- | --- | --- |
-| `Repository validation` | Success | https://github.com/bharti1233/Hmxgram/actions/runs/42968227013/job/130350342011 |
-| `Build patch bundle (.mpp)` | Success | https://github.com/bharti1233/Hmxgram/actions/runs/42968227013/job/130350397265 |
-
-Earlier green CI runs on the same branch:
-
-- https://github.com/bharti1233/Hmxgram/actions/runs/42959373143 (`815dfba`)
-- https://github.com/bharti1233/Hmxgram/actions/runs/42853041675 (`8d3a6dc`)
-- https://github.com/bharti1233/Hmxgram/actions/runs/42850650287 (`58789b8`)
-
-## Bundle artifact
-
-| Field | Value |
-| --- | --- |
-| File | `patches-1.0.0.mpp` |
-| Workflow artifact | `patch-bundle` |
-| Retention | 14 days |
-
-The `.mpp` SHA-256 is not stable across builds, because the bundle embeds build metadata. Use the `.sha256` written by the run that produced the artifact. Observed values:
-
-| Commit | SHA-256 |
-| --- | --- |
-| `58789b8` | `5fc6201ef39a006ae358ceba29b2144e346a0eb820f212ac0142cf1a178b00de` |
-| `8d3a6dc` | `622fd485df414b756061c5d312f223484e4d7262d16926e9961baa60af68e339` |
-
-The bundle was built with JDK 21, Android SDK 35, and build-tools 35.0.0 on `ubuntu-latest`.
-
-## Stock APK verification
-
-The base APK is stored as a private release asset in `bharti1233/hmx-build-inputs` and downloaded on the runner only.
+The base APK is stored as a private release asset and downloaded on the runner only.
 
 | Field | Value |
 | --- | --- |
 | Input repository | `bharti1233/hmx-build-inputs` (private) |
 | Release tag | `Apk-input-original` |
 | Asset name | `Instagram.apk` |
-| Asset ID | `734297498` |
+| Asset ID | not recorded (redacted on purpose) |
 | Size | `259,865,899` bytes (247.8 MiB) |
 | SHA-256 | `b334feef23722f0364a80c2c9e99af48e0c460cc652213d3f1a919f2007e5136` |
 | Package | `com.instagram.android` |
@@ -76,7 +40,7 @@ The base APK is stored as a private release asset in `bharti1233/hmx-build-input
 | Native code | `arm64-v8a` only |
 | Label | `Instagram` |
 
-The downloaded file's SHA-256 matched the GitHub asset digest exactly, and the workflow's `sha256sum -c` check reported `OK`.
+The downloaded file's SHA-256 matched the GitHub asset digest exactly, and `sha256sum -c` reported `OK`.
 
 ### Signer
 
@@ -86,98 +50,149 @@ The downloaded file's SHA-256 matched the GitHub asset digest exactly, and the w
 | Current signer cert SHA-256 | `3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014` |
 | Key algorithm | RSA 4096 |
 | Legacy lineage signer | `CN=Kevin Systrom, O=Instagram Inc, L=San Francisco, ST=California, C=US` (RSA 1024) |
-| Legacy signer cert SHA-256 | `5f3e50f435583c9ae626302a71f7340044087a7e2c60adacfc254205a993e305` |
 | Google Play SourceStamp signer | `CN=Android, OU=Android, O=Google Inc., L=Mountain View, ST=California, C=US` |
 
-### Signature schemes
+`apksigner` reports v3 and v3.1 verified and v1/v2 false, which is normal for a modern Play build with `minSdkVersion=28`.
 
-```text
-Verified using v1 scheme (JAR signing): false
-Verified using v2 scheme (APK Signature Scheme v2): false
-Verified using v3 scheme (APK Signature Scheme v3): true
-Verified using v3.1 scheme (APK Signature Scheme v3.1): true
-Verified using v4 scheme (APK Signature Scheme v4): false
-Verified for SourceStamp: true
-Number of signers: 1
-```
+## Security hardening (Phase 1.1)
 
-The absence of v1/v2 is expected for a modern Play-distributed app with `minSdkVersion=28`; the v3/v3.1 chain verifies.
+The gated APK workflow now enforces the following at runtime.
 
-### Stock checks
+### Signature-check bypass
 
-- No `Feurstagram` or `Morphe` entries in the APK's file list.
-- No `Lcom/feurstagram/` classes in the dex payload.
-- The signer is not `CN=Feurstagram`, so this is not the already-patched build installed on the development device.
-- The verification job uploaded only a text report (`base-apk-verification`) and deleted the APK in an `always()` step.
+- `SignatureCheckBypassPatch` remains `default = true` in the patch bundle.
+- `build.sh` now passes `-d "Signature check bypass"` unless the caller passes
+  `--allow-signature-bypass`, so the bypass is **off by default**.
+- The workflow exposes `allow_signature_bypass` (default `false`). Enabling it
+  requires `allow_throwaway_signature=true`; a release keystore makes the job
+  fail before any download.
+- `build.sh` independently refuses `--allow-signature-bypass` when release
+  keystore signing is active.
+- The job summary always prints the selected signing mode and bypass state.
 
-## What the PR adds
+### APK artifact policy
 
-- `.github/workflows/ci.yml` — validation and `.mpp` build on push/PR to `main`, plus manual dispatch.
-- `.github/workflows/apk.yml` — manual, environment-gated APK build. It does not run on push or PR.
-- `.github/workflows/verify-base.yml` — read-only stock APK verification; no patching, no APK upload.
-- `scripts/ci/validate_repo.sh` — license/attribution, tracked-artifact, secret-pattern, executable-mode, and workflow-safety checks.
-- `patches/build.gradle.kts` — package metadata points to the Hmxgram source/website while preserving Jean Herail's credit.
-- `gradle/wrapper/gradle-wrapper.properties` — bounded retries for the Gradle distribution download.
+The patched APK is **not uploaded** as an Actions artifact. Artifacts on a
+public repository are not private storage, and the APK contains proprietary
+Meta code. The workflow uploads only `feurstagram.apk.sha256` and the signer
+certificate dump. The APK itself is deleted in an `always()` cleanup step.
+Do not re-enable APK upload until a verified private distribution channel
+exists.
 
-## Actions secrets configured
+### Signing
 
-Only names are recorded here. No secret values are stored in the repository or in this report.
+- Throwaway signing is an explicit, default-off input and is labelled with a
+  `-test` suffix in the output filename and summary.
+- Release builds must provide `RELEASE_CERT_SHA256`; the workflow refuses to
+  finish unless the output APK presents that certificate.
+- Release keystore and throwaway signing cannot be combined; the job fails on
+  the ambiguous case.
+
+### Input verification
+
+Before patching, the workflow asserts:
+
+- `base_apk_kind=apk` (split bundles are rejected until merge/signer checks are implemented);
+- package `com.instagram.android`;
+- `versionName` `454.0.0.54.77`, and the `instagram_version` input matches it;
+- the expected Meta certificate `3a10c50c…c014` is present;
+- the downloaded bytes match `BASE_APK_SHA256`.
+
+### Workflow and supply chain
+
+- The APK job runs only when `github.ref == 'refs/heads/main'`, in addition to
+  the `apk-build` environment’s main-only deployment policy and required
+  reviewer.
+- All third-party actions are pinned to full commit SHAs.
+- The private-asset token must be fine-grained. A classic PAT that reports
+  broad scopes (`repo`, `workflow`, `write:packages`, …) is rejected before the
+  download, and nothing prints the token.
+
+## Secrets
+
+Secret **names** only; no values are stored in this repository.
+
+### `apk-build` environment secrets
+
+| Secret | Purpose |
+| --- | --- |
+| `BASE_APK_URL` | API asset URL of the private stock APK |
+| `BASE_APK_SHA256` | SHA-256 of the stock APK |
+| `BASE_APK_TOKEN` | Fine-grained token, Contents: Read on the private input repository |
+| `RELEASE_KEYSTORE_BASE64` | Release keystore, base64 (set only for release builds) |
+| `RELEASE_KEYSTORE_PASS` | Release keystore password |
+| `RELEASE_KEY_PASS` | Release key password (optional) |
+| `RELEASE_KEY_ALIAS` | Release key alias (optional) |
+| `RELEASE_CERT_SHA256` | Expected release signing certificate SHA-256 (required for release builds) |
+
+### Repository secrets
 
 | Secret | Purpose |
 | --- | --- |
 | `MORPHE_REGISTRY_USER` | GitHub Packages username |
-| `MORPHE_REGISTRY_TOKEN` | Token with `read:packages` for the Morphe registry |
+| `MORPHE_REGISTRY_TOKEN` | Token used to read the Morphe registry (`.mpp` build only) |
 | `MORPHE_CLI_URL` | Pinned Morphe Desktop CLI release URL |
 | `MORPHE_CLI_SHA256` | SHA-256 of the pinned CLI jar |
 | `APKEDITOR_URL` | Pinned APKEditor release URL |
 | `APKEDITOR_SHA256` | SHA-256 of the pinned APKEditor jar |
-| `BASE_APK_URL` | API asset URL of the stock APK (`https://api.github.com/repos/bharti1233/hmx-build-inputs/releases/assets/734297498`) |
-| `BASE_APK_SHA256` | SHA-256 of the stock APK |
-| `BASE_APK_TOKEN` | Token used to read the private release asset |
 
-The `apk-build` environment exists with a required reviewer (`bharti1233`) and a deployment branch policy restricted to `main`.
+The registry token is only needed for `.mpp` builds and should be rotated to a
+least-privilege `read:packages` token.
 
-Private release assets must be fetched through the API asset URL with `Accept: application/octet-stream`. The browser URL `github.com/OWNER/REPO/releases/download/TAG/FILE` returns `404` for a private repository even with a valid token.
+## Branch protection (NOT enabled)
+
+Verified via the GitHub API on 2026-11-11:
+
+| Check | Result |
+| --- | --- |
+| `GET /branches/main/protection` | `404 Branch not protected` |
+| `GET /rulesets` | `[]` (no rulesets) |
+| `apk-build` environment | required reviewer `bharti1233`; custom deployment policy = `main` |
+| Rulesets API available to this repository | Yes (admin access) |
+
+Branch protection is **not** enabled. It is deliberately deferred because a
+required-review rule would block the sole maintainer from merging PR #1, and
+required status checks should be added after the workflows exist on `main`.
+
+Recommended ruleset for `main`:
+
+1. Block branch deletion and non-fast-forward pushes.
+2. Require a pull request before merging, with at least one approval once a
+   second maintainer exists.
+3. Require the `Repository validation` and `Build patch bundle (.mpp)` checks.
+4. Require signed commits if the maintainers use signing.
+5. Restrict bypass to repository admins, and document every bypass.
 
 ## APK workflow readiness
 
-The workflow is implemented and every input it needs is configured, but it has **not** been dispatched. It requires:
-
-1. ~~A stock, Meta-signed Instagram APK~~ — **verified** (`Instagram.apk`, `454.0.0.54.77`).
-2. ~~`BASE_APK_URL` and `BASE_APK_SHA256`~~ — **configured**.
-3. Signing material — `allow_throwaway_signature=true` for the debug/test artifact, or `RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASS` (plus optional alias/password) for a release build.
-4. ~~`MORPHE_CLI_*` and `APKEDITOR_*` secrets~~ — **configured**.
-
-Two constraints still block dispatch:
-
-- `workflow_dispatch` only exposes workflows that exist on the default branch, so PR #1 must be merged to `main` first.
-- The `apk-build` environment only allows deployments from `main`.
-
-Debug build inputs for the first run:
+Every input is configured, but the workflow has **not** been dispatched.
 
 | Input | Value |
 | --- | --- |
 | `instagram_version` | `454.0.0.54.77` |
 | `base_apk_kind` | `apk` |
 | `clone` | `false` |
-| `allow_throwaway_signature` | `true` |
+| `allow_throwaway_signature` | `true` for the first test build |
+| `allow_signature_bypass` | `false` (enable only if testing deep links) |
 
-The APK currently installed on the development device is **not** a stock base: it is version `454.0.0.54.77` but is signed by `CN=Feurstagram` (SHA-256 `cfddc301047c7b08b7151cf15d91a585f1d9518b6cdefadfe40f0996d11b3918`). Patching an already-patched APK is not a supported baseline.
+Remaining blockers before dispatch:
 
-APKPure and APKMirror are protected by Cloudflare challenge pages, so the workflow does not attempt to scrape them. The stock APK is supplied as a private release asset instead.
+1. PR #1 must be merged to `main` (`workflow_dispatch` requires the file on the
+   default branch, and the environment is `main`-only).
+2. `BASE_APK_TOKEN` must be swapped from the current classic PAT to a
+   fine-grained token with **Contents: Read** on `bharti1233/hmx-build-inputs`.
+   The workflow rejects broad classic scopes by design.
+3. A release build additionally requires the release keystore and
+   `RELEASE_CERT_SHA256`.
 
-## Security decisions
-
-- No APK, keystore, Morphe CLI, stock APK, or registry token is committed.
-- The APK workflow is manual and gated by the `apk-build` environment.
-- The base APK is downloaded into the runner temp directory, verified by SHA-256, and deleted in an `always()` cleanup step.
-- The patched APK is not a release artifact by default. A debug build must use a throwaway signature and must not be distributed.
-- APK release production remains blocked on the legal/security gate described in `HMX_INSTAPLUS_SECURITY_AUDIT.md` (SEC-11).
+Expected first-test behaviour: throwaway signing, bypass disabled, output named
+`feurstagram-454.0.0.54.77-test.apk`, not uploaded, deleted at job end.
 
 ## Next actions
 
-1. Review and merge PR #1 (`a27aff1`) to `main`.
-2. Dispatch `APK build (gated)` from `main` with `allow_throwaway_signature=true` to exercise the full patch/sign path.
-3. Inspect the resulting artifact and logs; do not treat a throwaway-signed APK as a release.
-4. For a release build, provide the release keystore and complete the distribution review.
-5. Delete the stock APK release asset after the base APK is no longer needed, and rotate any GitHub token that was shared during setup.
+1. Create the fine-grained asset token and replace the `apk-build`
+   environment secret `BASE_APK_TOKEN`.
+2. Review and merge PR #1.
+3. Dispatch the gated APK workflow from `main` with the inputs above.
+4. Delete the stock APK release asset after the base is no longer needed.
+5. Rotate the registry token to `read:packages` only.
