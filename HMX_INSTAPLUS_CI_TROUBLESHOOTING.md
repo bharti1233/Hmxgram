@@ -136,6 +136,14 @@ The repository contains patch code only. The Instagram APK is proprietary and mu
 
 Supply a stock APK through a private HTTPS URL and record its SHA-256. The workflow downloads it into `$RUNNER_TEMP`, verifies the hash, and deletes it after the job.
 
+For a private GitHub release asset, use the API asset URL, not the browser download URL:
+
+```text
+https://api.github.com/repos/OWNER/REPO/releases/assets/ASSET_ID
+```
+
+Send `Authorization: Bearer <token>` and `Accept: application/octet-stream`. The public `github.com/OWNER/REPO/releases/download/TAG/FILE` URL returns `404` for a private repository even when the token is valid. The APK workflow adds both headers when `BASE_APK_TOKEN` is set.
+
 Do not scrape APKPure or APKMirror from CI. Both are protected by Cloudflare challenge pages; bypassing those protections is out of scope and unreliable.
 
 ### Installed APK is not a stock base

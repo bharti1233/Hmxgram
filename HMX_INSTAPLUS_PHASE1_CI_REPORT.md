@@ -90,6 +90,8 @@ The workflow is implemented but has not been run. It requires:
 3. Signing material — either `RELEASE_KEYSTORE_BASE64`/`RELEASE_KEYSTORE_PASS` (plus optional alias/password), or the `allow_throwaway_signature` input for a debug/test artifact.
 4. `MORPHE_CLI_*` and `APKEDITOR_*` secrets, which are already configured.
 
+A private input repository, `bharti1233/hmx-build-inputs`, has been created with a prerelease named `apk-input`. Upload the stock APK there and use the release asset's **API URL** (`https://api.github.com/repos/bharti1233/hmx-build-inputs/releases/assets/<id>`) as `BASE_APK_URL`. The workflow sends both `Authorization: Bearer` and `Accept: application/octet-stream`; the browser download URL returns `404` for a private repository.
+
 The APK currently installed on the development device is **not** a stock base: it is version `454.0.0.54.77` but is signed by `CN=Feurstagram` (SHA-256 `cfddc301047c7b08b7151cf15d91a585f1d9518b6cdefadfe40f0996d11b3918`). Patching an already-patched APK is not a supported baseline.
 
 APKPure and APKMirror are protected by Cloudflare challenge pages, so the workflow does not attempt to scrape them. The stock APK must be supplied through a private HTTPS URL or a private release asset.

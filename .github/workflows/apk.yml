@@ -143,8 +143,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/hmx-input"
           out="$RUNNER_TEMP/hmx-input/instagram.$BASE_APK_KIND"
           header="$RUNNER_TEMP/hmx-input/base-apk-auth.header"
+          # Private GitHub release assets must be fetched through the API asset
+          # URL with Accept: application/octet-stream. The public
+          # github.com/.../releases/download/... URL returns 404 even with a
+          # bearer token when the repository is private.
           if [ -n "${BASE_APK_TOKEN:-}" ]; then
-            printf 'Authorization: Bearer %s\n' "$BASE_APK_TOKEN" > "$header"
+            {
+              printf 'Authorization: Bearer %s\n' "$BASE_APK_TOKEN"
+              printf 'Accept: application/octet-stream\n'
+            } > "$header"
             chmod 600 "$header"
             curl --fail --location --retry 3 --retry-delay 5 \
               --proto '=https' --tlsv1.2 --max-time 900 \
@@ -153,7 +160,8 @@ jobs:
           else
             curl --fail --location --retry 3 --retry-delay 5 \
               --proto '=https' --tlsv1.2 --max-time 900 \
-              --silent --show-error -o "$out" "$BASE_APK_URL"
+              --silent --show-error -H 'Accept: application/octet-stream' \
+              -o "$out" "$BASE_APK_URL"
           fi
           printf '%s  %s\n' "$BASE_APK_SHA256" "$out" | sha256sum -c -
           echo "BASE_APK=$out" >> "$GITHUB_ENV"
