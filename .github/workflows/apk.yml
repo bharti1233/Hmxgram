@@ -684,6 +684,7 @@ jobs:
             feurstagram-*.apk.sha256
             ${{ runner.temp }}/apk-certs.txt
             ${{ runner.temp }}/standalone-validation.txt
+            ${{ github.workspace }}/build/patch-report.json
           if-no-files-found: error
           retention-days: 7
 

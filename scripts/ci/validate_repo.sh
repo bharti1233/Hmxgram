@@ -29,7 +29,9 @@ for f in \
   scripts/ci/validate_bundle.sh \
   scripts/ci/validate_standalone_apk.sh \
   scripts/ci/install_smoke_test.sh \
-  scripts/ci/test_universal_packaging.sh
+  scripts/ci/test_universal_packaging.sh \
+  scripts/ci/verify_patch_report.py \
+  scripts/ci/test_patch_report.sh
  do
   if [ -f "$f" ]; then note "ok: $f"; else bad "missing required file: $f"; fi
 done
@@ -82,7 +84,7 @@ else
 fi
 
 note "== Executable modes =="
-for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh; do
+for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"
   if [ "$mode" = "100755" ]; then note "ok: $f is executable in git"; else bad "$f must be mode 100755 (found $mode)"; fi
 done
@@ -175,10 +177,11 @@ else
   bad "build.sh does not enforce the standalone packaging validators"
 fi
 
-if grep -qF 'failedPatches' build.sh; then
-  note "ok: build.sh fails on a patch report with failed patches"
+if grep -qF 'failedPatches' scripts/ci/verify_patch_report.py && \
+   grep -qF 'verify_patch_report.py' build.sh; then
+  note "ok: build.sh verifies the Morphe patch report with the shared verifier"
 else
-  bad "build.sh does not fail on failed patches"
+  bad "build.sh does not verify the Morphe patch report with scripts/ci/verify_patch_report.py"
 fi
 
 if grep -qF -- '-clean-meta' build.sh; then

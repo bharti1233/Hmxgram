@@ -38,6 +38,9 @@ jobs:
       - name: Test universal APK packaging gates
         run: bash scripts/ci/test_universal_packaging.sh
 
+      - name: Test patch report verifier
+        run: bash scripts/ci/test_patch_report.sh
+
   bundle:
     name: Build patch bundle (.mpp)
     runs-on: ubuntu-latest

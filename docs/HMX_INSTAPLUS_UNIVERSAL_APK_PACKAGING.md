@@ -85,6 +85,8 @@ publish step re-validates the exact bytes it is about to upload.
 | `scripts/ci/validate_standalone_apk.sh` | Merge-stage and final-stage standalone/signature/alignment gate. |
 | `scripts/ci/install_smoke_test.sh` | arm64/API 35 install smoke test; refuses x86 targets. |
 | `scripts/ci/test_universal_packaging.sh` | Offline tests A–H plus optional real-artifact checks. |
+| `scripts/ci/verify_patch_report.py` | Patch-report gate: failed/empty/short reports and missing expected patches abort the build. |
+| `scripts/ci/test_patch_report.sh` | Offline tests for the patch-report verifier. |
 | `build.sh` | Input validation, APKEditor merge, patch report enforcement, final validation. |
 | `.github/workflows/apk.yml` | Bundle/APK input selection, gates, optional install test, private publish. |
 | `.github/workflows/ci.yml` | Runs the packaging gate tests on every push/PR. |
@@ -226,6 +228,36 @@ Checks:
 7. `resources.arsc` readable via `aapt2 dump configurations`.
 8. Final stage only: `apksigner verify` with v2/v3, expected signer pin, and
    `zipalign -c -p 4`.
+
+### Patch report
+
+```sh
+MIN_APPLIED_PATCHES=10 \
+EXPECTED_PATCHES="Force SDR display,Feed item filtering,..." \
+python3 scripts/ci/verify_patch_report.py build/patch-report.json
+```
+
+The Morphe CLI writes `build/patch-report.json` (`-r`). The verifier is the gate
+between "Morphe said it applied everything" and "the APK may be signed and
+published". It aborts the build when
+
+- the report is missing or unreadable,
+- any patch is listed as failed,
+- the applied set is empty,
+- fewer than `MIN_APPLIED_PATCHES` patches applied,
+- a patch in `EXPECTED_PATCHES` did not apply and was not explicitly disabled
+  through `DISABLE_PATCHES`.
+
+The report shape differs between CLI releases (entries may be plain names or
+objects, and the key names differ), so the verifier accepts every shape seen in
+practice instead of assuming one. `scripts/ci/test_patch_report.sh` covers each
+accepted shape and each failure mode. The raw report is uploaded as a text
+artifact (`apk-build-report`) so the applied set can be audited after a run.
+
+> The first gated run against the real bundle (run `43081109387`) applied all 13
+> patches but aborted in the previous inline parser, which assumed object
+> entries: `AttributeError: 'str' object has no attribute 'get'`. The verifier
+> now normalises both shapes.
 
 ### Install smoke test
 
