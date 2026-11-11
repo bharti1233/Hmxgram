@@ -12,7 +12,8 @@ you inspect the patches and avoid trusting a prebuilt APK.
   gpr.user=<your-github-username>
   gpr.key=<token-with-read:packages>
   ```
-- A supported Instagram APK (arm64-v8a from a trusted source such as APKMirror)
+- A supported Instagram **complete bundle** (`.apkm`, arm64-v8a, from a trusted source
+  such as APKMirror) or a standalone APK that has no split requirements
 
 ## Steps
 
@@ -22,15 +23,24 @@ you inspect the patches and avoid trusting a prebuilt APK.
    cd Feurstagram
    ```
 
-2. Build and apply the patches to your Instagram APK.
+2. Build and apply the patches to your Instagram bundle or APK.
    ```sh
-   ./build.sh instagram.apk
+   ./build.sh instagram.apkm
    ```
    Add `--clone` to install alongside a stock Instagram, and `--install` to push
    to a connected device:
    ```sh
-   ./build.sh instagram.apk --clone --install
+   ./build.sh instagram.apkm --clone --install
    ```
+
+   A single `.apk` is accepted only when it is complete. A base APK extracted from a
+   split bundle declares `requiredSplitTypes` and is rejected: patching it produces
+   `INSTALL_FAILED_MISSING_SPLIT`. Supply the original `.apkm/.apks` bundle instead;
+   `build.sh` merges it with APKEditor V1.4.9 before patching.
+
+   The build validates the input, the merged APK, and the final signed APK. See
+   [`HMX_INSTAPLUS_UNIVERSAL_APK_PACKAGING.md`](HMX_INSTAPLUS_UNIVERSAL_APK_PACKAGING.md)
+   for the gates and the CI secrets.
 
 3. Install the signed result (if you did not pass `--install`).
    ```sh

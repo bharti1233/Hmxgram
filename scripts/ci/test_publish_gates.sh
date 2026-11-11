@@ -38,6 +38,20 @@ echo "Signer #1 certificate SHA-256 digest: $APK_CERT_SHA256"
 EOS
 chmod +x "$tmp/bin/apksigner"
 
+# The publish step re-runs the real standalone validator. Stub it inside the fake
+# work tree so this test stays offline: it records the invocation and can be told
+# to fail, which must abort publishing before any upload.
+VALIDATOR="$tmp/work/scripts/ci/validate_standalone_apk.sh"
+mkdir -p "$(dirname "$VALIDATOR")"
+cat > "$VALIDATOR" <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${VALIDATION_LOG:?}"
+[ "${VALIDATE_STUB_FAIL:-0}" = "1" ] && { echo "ERROR: forced standalone validation failure" >&2; exit 1; }
+exit 0
+EOS
+chmod +x "$VALIDATOR"
+
 cat > "$tmp/bin/aapt" <<'EOS'
 #!/usr/bin/env bash
 echo "package: name='${FAKE_PKG:-com.instagram.android}' versionCode='1' versionName='${FAKE_VERSION:-1.0}'"
@@ -72,11 +86,13 @@ printf 'Signer #1 certificate SHA-256 digest: %s\n' "$cert" > "$tmp/runner/apk-c
 run_case() {
   local name="$1"; shift
   : > "$tmp/work/github_env"
+  : > "$tmp/validation.log"
   set +e
   ( cd "$tmp/work" && env \
       PATH="$tmp/bin:$PATH" \
       RUNNER_TEMP="$tmp/runner" \
       GITHUB_ENV="$tmp/work/github_env" \
+      VALIDATION_LOG="$tmp/validation.log" \
       APK_OUT="$apk" APK_SHA256="$sha" APK_CERT_SHA256="$cert" \
       SIGNING_MODE=throwaway SIGNATURE_BYPASS=false \
       DIST_TOKEN=dist-token BASE_APK_TOKEN=base-token \
@@ -132,13 +148,23 @@ run_case wrong_version FAKE_VERSION=9.9.9
 expect_rc wrong_version 1
 expect_log wrong_version "APK version is '9.9.9', expected '1.0'"
 
+run_case publish_revalidation_fail VALIDATE_STUB_FAIL=1
+expect_rc publish_revalidation_fail 1
+expect_log publish_revalidation_fail "forced standalone validation failure"
+
 run_case clone_success CLONE=true FAKE_PKG=com.instagram.android.feurstagram
 expect_rc clone_success 0
 expect_log clone_success "Published $apk as owner/repo@debug-test-1-1"
+grep -qF -- "--expected-package com.instagram.android.feurstagram" "$tmp/validation.log" \
+  || bad "clone_success: publish path must re-validate the clone package"
 
 run_case success
 expect_rc success 0
 expect_log success "Published $apk as owner/repo@debug-test-1-1"
+grep -qF -- "--stage final" "$tmp/validation.log" \
+  || bad "success: publish path must re-run the standalone validator before upload"
+grep -qF -- "--expected-package com.instagram.android " "$tmp/validation.log" \
+  || bad "success: publish path must re-validate the stock package"
 grep -qF "PUBLISHED_TAG=debug-test-1-1" "$tmp/work/github_env" \
   || bad "success: PUBLISHED_TAG was not exported"
 

@@ -21,6 +21,18 @@
 # universal APK with APKEditor (tools/APKEditor-*.jar) before patching. The merge
 # is cached under build/merged/ and reused while it is newer than the bundle.
 #
+# A single .apk input is only accepted when it is a complete standalone APK. A
+# bundle-derived base APK (one that declares requiredSplitTypes) is rejected:
+# patching it produces INSTALL_FAILED_MISSING_SPLIT because the split payload is
+# not present. Supply the complete original .apkm/.apks bundle instead.
+#
+# Validation is performed by scripts/ci/validate_{input_apk,bundle,standalone_apk}.sh
+# and is controlled by the same environment used in CI:
+#   EXPECTED_INSTAGRAM_PACKAGE, EXPECTED_INSTAGRAM_VERSION,
+#   EXPECTED_INSTAGRAM_VERSION_CODE, EXPECTED_META_CERT_SHA256,
+#   EXPECTED_APK_SIGNER_SHA256, MIN_RES_ENTRIES, MIN_APPLIED_PATCHES,
+#   EXPECTED_PATCHES (comma separated), EXPECTED_BUNDLE_SHA256
+#
 # Signing: set FEURSTAGRAM_KEYSTORE_PASS (and optionally FEURSTAGRAM_KEY_PASS)
 # to sign with feurstagram.keystore. That keystore is PKCS12, which the Morphe
 # CLI cannot read (it expects BKS), so the APK is built unsigned and signed with
@@ -101,9 +113,24 @@ if [ -z "$CLI" ]; then
     exit 1
 fi
 
+VALIDATE_INPUT="$DIR/scripts/ci/validate_input_apk.sh"
+VALIDATE_BUNDLE="$DIR/scripts/ci/validate_bundle.sh"
+VALIDATE_STANDALONE="$DIR/scripts/ci/validate_standalone_apk.sh"
+for validator in "$VALIDATE_INPUT" "$VALIDATE_BUNDLE" "$VALIDATE_STANDALONE"; do
+    if [ ! -f "$validator" ]; then
+        echo "Error: required validator missing: $validator" >&2
+        exit 1
+    fi
+done
+
 # A split bundle has to become one universal APK before the patcher can touch it.
 case "$APK" in
     *.apkm | *.xapk | *.apks)
+        echo "==> [0/4] Validating bundle $(basename "$APK")"
+        bash "$VALIDATE_BUNDLE" "$APK" || {
+            echo "Error: bundle validation failed. The complete original bundle is required." >&2
+            exit 1
+        }
         EDITOR="$(ls -t "$DIR"/tools/APKEditor-*.jar 2>/dev/null | head -1 || true)"
         if [ -z "$EDITOR" ]; then
             echo "Error: $(basename "$APK") is a split bundle and needs APKEditor to merge." >&2
@@ -113,9 +140,9 @@ case "$APK" in
         fi
         MERGED="$DIR/build/merged/$(basename "${APK%.*}").apk"
         if [ -f "$MERGED" ] && [ "$MERGED" -nt "$APK" ]; then
-            echo "==> [0/3] Reusing merged bundle: $(basename "$MERGED")"
+            echo "==> [0/4] Reusing merged bundle: $(basename "$MERGED")"
         else
-            echo "==> [0/3] Merging splits from $(basename "$APK")"
+            echo "==> [0/4] Merging splits from $(basename "$APK")"
             mkdir -p "$(dirname "$MERGED")"
             # The bundle holds base.apk plus feature/density splits; -f overwrites
             # a stale merge. Instagram's is ~400 MB, so give the JVM room. The
@@ -129,9 +156,24 @@ case "$APK" in
         fi
         APK="$MERGED"
         ;;
+    *)
+        echo "==> [0/4] Validating single APK input $(basename "$APK")"
+        bash "$VALIDATE_INPUT" "$APK" || {
+            echo "Error: input APK rejected. Use the complete original .apkm/.apks bundle." >&2
+            exit 1
+        }
+        ;;
 esac
 
-echo "==> [1/3] Building patch bundle (.mpp)"
+# The merged/patch input must be a genuinely standalone APK: no split metadata,
+# merged density payload, readable resource table, expected identity.
+echo "==> [0/4] Validating standalone packaging of $(basename "$APK")"
+bash "$VALIDATE_STANDALONE" --stage merge "$APK" || {
+    echo "Error: the APK is not a valid standalone universal APK. Refusing to patch it." >&2
+    exit 1
+}
+
+echo "==> [1/4] Building patch bundle (.mpp)"
 "$DIR/gradlew" -p "$DIR" :patches:build
 MPP="$(ls -t "$DIR"/patches/build/libs/patches-*[0-9].mpp 2>/dev/null | grep -v -- '-sources\|-javadoc' | head -1 || true)"
 if [ -z "$MPP" ]; then
@@ -140,7 +182,7 @@ if [ -z "$MPP" ]; then
 fi
 echo "    bundle: $MPP"
 
-echo "==> [2/3] Applying to $(basename "$APK")"
+echo "==> [2/4] Applying to $(basename "$APK")"
 if [ "$ALLOW_SIGNATURE_BYPASS" -eq 1 ]; then
     echo "    !! signature-check bypass ENABLED (test builds only)"
 else
@@ -225,18 +267,58 @@ fi
 # Surface which patches actually applied. The CLI aborts on the first failure, so
 # this is mostly a receipt — but a fingerprint that quietly stopped matching on a
 # new Instagram build is exactly the regression that shipped as issue #117.
-if [ -f "$REPORT" ] && command -v python3 >/dev/null 2>&1; then
-    python3 - "$REPORT" <<'EOF' || true
-import json, sys
+# A failed or missing report is a hard build failure: publishing must never
+# proceed with silently skipped patches.
+if [ ! -f "$REPORT" ]; then
+    echo "Error: Morphe did not write the patch report: $REPORT" >&2
+    exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: python3 is required to verify the patch report." >&2
+    exit 1
+fi
+python3 - "$REPORT" <<'EOF'
+import json, os, sys
+
 report = json.load(open(sys.argv[1]))
+applied = [p.get("name") for p in report.get("appliedPatches", [])]
+failed = report.get("failedPatches", []) or []
 for patch in report.get("appliedPatches", []):
     print(f"    ok   {patch.get('name')}")
-for patch in report.get("failedPatches", []):
+for patch in failed:
     print(f"    FAIL {patch.get('name')}: {patch.get('exception') or patch.get('error') or ''}")
-EOF
-fi
 
-echo "==> [3/3] Output: $OUT"
+if failed:
+    print(f"Error: {len(failed)} patch(es) failed; refusing to produce an APK.", file=sys.stderr)
+    sys.exit(1)
+if not applied:
+    print("Error: patch report contains no applied patches.", file=sys.stderr)
+    sys.exit(1)
+
+minimum = int(os.environ.get("MIN_APPLIED_PATCHES", "1") or "1")
+if len(applied) < minimum:
+    print(f"Error: only {len(applied)} patches applied, minimum is {minimum}.", file=sys.stderr)
+    sys.exit(1)
+
+disabled = {n.strip() for n in os.environ.get("DISABLE_PATCHES", "").split(",") if n.strip()}
+expected = [n.strip() for n in os.environ.get("EXPECTED_PATCHES", "").split(",") if n.strip()]
+missing = [n for n in expected if n not in applied and n not in disabled]
+if missing:
+    print(f"Error: expected patches were not applied: {', '.join(missing)}", file=sys.stderr)
+    sys.exit(1)
+print(f"    {len(applied)} patch(es) applied, 0 failed")
+EOF
+
+echo "==> [3/4] Validating final standalone APK"
+if [ "$CLONE" -eq 1 ]; then
+    export EXPECTED_INSTAGRAM_PACKAGE="com.instagram.android.feurstagram"
+fi
+bash "$VALIDATE_STANDALONE" --stage final "$OUT" || {
+    echo "Error: final APK failed standalone/signature validation. Refusing to publish it." >&2
+    exit 1
+}
+
+echo "==> [4/4] Output: $OUT"
 [ "$DEBUG" -eq 1 ] && echo "    !! debug build: settings are drivable over ADB broadcasts — do not release"
 if [ "$INSTALL" -eq 1 ]; then
     echo "    installing on device..."
