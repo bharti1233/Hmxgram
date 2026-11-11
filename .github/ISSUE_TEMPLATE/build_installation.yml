@@ -25,9 +25,9 @@ body:
       required: true
 
   - type: input
-    id: feurstagram-version
+    id: hmx-insta-version
     attributes:
-      label: Feurstagram version or commit
+      label: HMX Insta version or commit
       placeholder: "Example: v1.2.3 or commit hash"
     validations:
       required: false

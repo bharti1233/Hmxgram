@@ -52,7 +52,7 @@ deleting anything.
 1. Sign in to GitHub in Chrome as the repository owner.
 2. Open `https://github.com/bharti1233/hmx-build-inputs/releases`.
 3. Open the `debug-test-<run>-<attempt>` prerelease.
-4. Download `feurstagram-<version>-test.apk` and compare its SHA-256 with the
+4. Download `hmx-insta-<version>-test.apk` and compare its SHA-256 with the
    value in the release body.
 5. Install it. The throwaway signature cannot update over the stock Instagram
    app; uninstall it first or build with `clone=true`.

@@ -75,7 +75,7 @@ printf '{"digest":"sha256:%s"}\n' "$APK_SHA256"
 EOS
 chmod +x "$tmp/bin/curl"
 
-apk="feurstagram-1.0-test.apk"
+apk="hmx-insta-1.0-test.apk"
 printf 'fake-apk-bytes\n' > "$tmp/work/$apk"
 printf 'fake-apk-bytes\n' > "$tmp/work/feurstagram.apk"
 sha="$(sha256sum "$tmp/work/$apk" | awk '{print $1}')"

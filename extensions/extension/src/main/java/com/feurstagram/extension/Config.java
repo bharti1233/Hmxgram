@@ -105,9 +105,15 @@ public final class Config {
         prefs.edit().putBoolean("hardcore_mode", true).apply();
     }
 
-    /** Whether to check GitHub for a newer release on launch. On by default. */
-    public static boolean isAutoUpdateEnabled() {
-        return getBlocked("auto_update", true);
+    /**
+     * Whether the HMXPanel updater may run.
+     *
+     * Off by default, and off in every build so far: the updater is not
+     * implemented yet, so enabling it would only restore the upstream
+     * behaviour this project removed. See docs/HMX_INSTA_UPDATER.md.
+     */
+    public static boolean isUpdaterEnabled() {
+        return getBlocked("hmx_updater_enabled", false);
     }
 
     /**
