@@ -32,7 +32,16 @@ public final class DownloaderInstaller {
             "share", "repost", "save", "comment",
     };
 
+    /** How long the scan waits between two passes over the view tree. */
+    private static final long SCAN_INTERVAL_MS = 750L;
+
     private static WeakReference<Activity> watched = new WeakReference<>(null);
+    /** The activity the layout listener is currently attached to. */
+    private static WeakReference<Activity> listening = new WeakReference<>(null);
+    /** The listener itself, so the very same instance can be taken off again. */
+    private static WeakReference<android.view.ViewTreeObserver.OnGlobalLayoutListener>
+            layoutListener = new WeakReference<>(null);
+    private static long lastScan;
     private static boolean installed;
 
     private DownloaderInstaller() {
@@ -55,30 +64,62 @@ public final class DownloaderInstaller {
                         @Override public void onActivityPaused(Activity a) {}
                         @Override public void onActivityStopped(Activity a) {}
                         @Override public void onActivitySaveInstanceState(Activity a, android.os.Bundle b) {}
-                        @Override public void onActivityDestroyed(Activity a) {}
+                        @Override public void onActivityDestroyed(Activity a) { detach(a); }
                     });
         } catch (Throwable ignored) {
             // Without a lifecycle callback the buttons simply do not appear.
         }
     }
 
-    /** Watches one activity and adds the button when it can. */
+    /**
+     * Watches one activity and adds the button when it can.
+     *
+     * The listener is attached once per activity and taken off again when the
+     * activity goes away: a listener that stays behind would run on every
+     * layout of every later screen, and the scan would grow with it.
+     */
     static void attach(Activity activity) {
         if (activity == null) return;
         watched = new WeakReference<>(activity);
+        if (listening.get() == activity) return;
+        detach(listening.get());
         try {
             View decor = activity.getWindow().getDecorView();
-            decor.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            android.view.ViewTreeObserver observer = decor.getViewTreeObserver();
+            android.view.ViewTreeObserver.OnGlobalLayoutListener listener = () -> {
                 Activity current = watched.get();
                 if (current == null || current.isFinishing()) return;
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - lastScan < SCAN_INTERVAL_MS) return;
+                lastScan = now;
                 try {
                     addButton(current, decor);
                 } catch (Throwable ignored) {
                     // A screen we cannot read is simply left alone.
                 }
-            });
+            };
+            observer.addOnGlobalLayoutListener(listener);
+            layoutListener = new WeakReference<>(listener);
+            listening = new WeakReference<>(activity);
         } catch (Throwable ignored) {
             // No window, no button.
+        }
+    }
+
+    /** Takes the layout listener off an activity that is going away. */
+    static void detach(Activity activity) {
+        if (activity == null) return;
+        if (listening.get() != activity) return;
+        listening = new WeakReference<>(null);
+        android.view.ViewTreeObserver.OnGlobalLayoutListener listener = layoutListener.get();
+        layoutListener = new WeakReference<>(null);
+        if (listener == null) return;
+        try {
+            View decor = activity.getWindow().getDecorView();
+            android.view.ViewTreeObserver observer = decor.getViewTreeObserver();
+            if (observer.isAlive()) observer.removeOnGlobalLayoutListener(listener);
+        } catch (Throwable ignored) {
+            // The window is already gone.
         }
     }
 

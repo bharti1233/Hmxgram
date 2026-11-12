@@ -73,6 +73,43 @@ accessors listed in the architecture document).
 
 ---
 
+## 2b. The regression of 2026-11-12, and the guard it produced
+
+**Symptom**: the build that added the downloader and the ghost mode left the app
+on a black screen with an endless spinner when the network was on; with the
+network off the login screen appeared; and logging in with the network on left
+the spinner again.
+
+**Root cause**: the capture hook is inserted right after Instagram's media
+parser produced the model, into the register that holds it. The call itself
+destroys that register — which is why the feed filter, the pattern this project
+has shipped for months, re-materialises the model with a `move-result-object`
+right after its own call. The new hook called a `void` method and did not put
+the model back, so every parsed media was lost: with a network the app parses
+the feed and the session and never gets a usable model (spinner); without one
+nothing is parsed, so the login screen appears; after logging in the feed is
+parsed and the spinner is back.
+
+**Fix**: `MediaRegistry.capture` now returns the media unchanged and the patch
+puts it straight back, byte for byte the pattern the feed filter uses.
+
+**Second defect in the same new code**: the installer added a global layout
+listener on *every* activity resume and never removed it, so the listeners
+piled up and each layout pass walked the view tree again and again. The
+listener is now attached once per screen, removed when the screen goes away,
+and the scan is throttled.
+
+**Guards added**
+* a unit test that the capture hands the media back (56 checks in the suite);
+* a static check that the patch restores the register and that the installer
+  removes its listener;
+* a dex-level check (`scripts/ci/verify_capture_patch.py`) that runs in every
+  gated build: it disassembles the patched APK and fails the build if any
+  capture call is not followed by the restore — the exact defect that broke
+  the app can no longer reach a device.
+
+---
+
 ## 3. What still needs a device
 
 | Check | Why it cannot be done offline |

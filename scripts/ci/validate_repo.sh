@@ -34,6 +34,7 @@ for f in \
   scripts/ci/test_patch_report.sh \
   scripts/ci/validate_branding.sh \
   scripts/ci/validate_features.sh \
+  scripts/ci/verify_capture_patch.py \
   scripts/ci/test_downloader_logic.sh \
   scripts/ci/test_ghost_mode.sh \
   scripts/branding/pngtool.py \
@@ -94,7 +95,7 @@ else
 fi
 
 note "== Executable modes =="
-for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/ci/validate_features.sh scripts/ci/test_downloader_logic.sh scripts/ci/test_ghost_mode.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
+for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/ci/validate_features.sh scripts/ci/verify_capture_patch.py scripts/ci/test_downloader_logic.sh scripts/ci/test_ghost_mode.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"
   if [ "$mode" = "100755" ]; then note "ok: $f is executable in git"; else bad "$f must be mode 100755 (found $mode)"; fi
 done
