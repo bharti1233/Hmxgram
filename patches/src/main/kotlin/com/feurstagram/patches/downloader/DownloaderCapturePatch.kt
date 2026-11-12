@@ -16,6 +16,16 @@ import com.feurstagram.patches.shared.Constants.EXTENSION
 private const val REGISTRY_CLASS = "Lcom/feurstagram/extension/downloader/MediaRegistry;"
 private const val MEDIA_TYPE = "Lcom/instagram/feed/media/Media;"
 
+/**
+ * How many call sites the patch is prepared to hook.
+ *
+ * The media parser is called from a handful of places — the feed, the direct
+ * inbox, the story tray. A number far above that means the fingerprint matched
+ * something else, and hooking thousands of sites would rewrite the whole dex
+ * and exhaust the build machine.
+ */
+private const val MAX_CALL_SITES = 400
+
 // Instagram's media deserialiser. The fingerprint is the one the feed filter
 // already uses (it is the same parser): the error strings are unique to it and
 // the field dispatch tells it apart from the helpers that share them.
@@ -56,6 +66,9 @@ private fun Instruction.isStringHash(): Boolean {
         reference.name == "hashCode"
 }
 
+/** One place where the media parser hands a model back to its caller. */
+private data class CallSite(val type: String, val method: Int, val index: Int, val register: Int)
+
 /**
  * Hands every media Instagram parses to the HMX downloader.
  *
@@ -64,9 +77,19 @@ private fun Instruction.isStringHash(): Boolean {
  * media type and the owner). Nothing is copied out of the app and nothing is
  * sent anywhere.
  *
- * The patch is anchored on the media parser, the same anchor the feed filter
- * uses, and it fails when the parser is not found or hands back no media: a
- * downloader that silently captures nothing would look like it worked.
+ * The hook is inserted right after the parser produced the model, into the
+ * register that holds it. The call itself destroys that register, so the model
+ * is put straight back with a `move-result-object` — the same pattern the feed
+ * filter uses. Without that restore every parsed media is lost, the feed never
+ * loads and the app sits on a spinner.
+ *
+ * Only the classes that actually call the parser are made mutable: touching
+ * every class in the dex would rewrite all of Instagram's 223,000 classes and
+ * exhaust the build machine.
+ *
+ * The patch fails when the parser is not found, is never called, or hands back
+ * no media: a downloader that silently captures nothing would look like it
+ * worked.
  */
 @Suppress("unused")
 val downloaderCapturePatch = bytecodePatch(
@@ -93,19 +116,15 @@ val downloaderCapturePatch = bytecodePatch(
         val parserName = parser.name
         val parserParams = parser.parameterTypes.map { it.toString() }
 
-        // Every call of the parser hands back a media model: the caller is
-        // where the finished media is available. The call sites of a method are
-        // collected first and the insertions are applied backwards, so the
-        // indices of the sites still to visit do not shift.
-        var hooked = 0
+        // First pass: find the call sites, reading the class definitions as they
+        // are. Nothing is made mutable here.
+        val callSites = mutableListOf<CallSite>()
         classDefForEach { classDef ->
             if (classDef.type.startsWith("Lcom/feurstagram/")) return@classDefForEach
-            val mutableClass = mutableClassDefBy(classDef.type)
-            mutableClass.methods.forEach { method ->
+            classDef.methods.forEachIndexed { methodIndex, method ->
                 // A method without an implementation (abstract, native) has no
                 // instructions to read: Morphe's extension throws on those.
-                if (method.implementation == null) return@forEach
-                val callSites = mutableListOf<Pair<Int, Int>>()
+                if (method.implementation == null) return@forEachIndexed
                 val methodInstructions = method.instructions
                 methodInstructions.forEachIndexed { index, instruction ->
                     if (instruction.opcode != Opcode.INVOKE_STATIC) return@forEachIndexed
@@ -115,24 +134,45 @@ val downloaderCapturePatch = bytecodePatch(
                     if (reference.parameterTypes.map { it.toString() } != parserParams) {
                         return@forEachIndexed
                     }
-                    val next = methodInstructions.getOrNull(index + 1) ?: return@forEachIndexed
+                    val next = methodInstructions.elementAtOrNull(index + 1) ?: return@forEachIndexed
                     if (next.opcode != Opcode.MOVE_RESULT_OBJECT) return@forEachIndexed
-                    callSites += (index + 1) to (next as OneRegisterInstruction).registerA
-                }
-                // Backwards, so an insertion does not move the sites still to visit.
-                callSites.sortedByDescending { it.first }.forEach { (index, register) ->
-                    // The call would destroy the register that holds the parsed
-                    // media, so the model is put straight back: the capture
-                    // returns it unchanged. This is the pattern the feed filter
-                    // uses, and the reason the app kept working there.
-                    method.addInstructions(
-                        index,
-                        "invoke-static/range { v$register .. v$register }, " +
-                            "$REGISTRY_CLASS->capture(Ljava/lang/Object;)Ljava/lang/Object;\n" +
-                            "move-result-object v$register",
+                    callSites += CallSite(
+                        classDef.type, methodIndex, index + 1,
+                        (next as OneRegisterInstruction).registerA,
                     )
-                    hooked++
                 }
+            }
+        }
+
+        if (callSites.isEmpty()) {
+            throw PatchException(
+                "Instagram's media parser hands back no media model; the HMX downloader cannot " +
+                    "capture media")
+        }
+        if (callSites.size > MAX_CALL_SITES) {
+            throw PatchException(
+                "the media parser is called ${callSites.size} times, which is more than the " +
+                    "downloader expects; refusing to rewrite the whole dex")
+        }
+
+        // Second pass: make only the classes that hold a call site mutable and
+        // insert the hook. Backwards, so an insertion does not move the sites
+        // still to visit.
+        var hooked = 0
+        callSites.groupBy { it.type }.forEach { (type, sites) ->
+            val mutableClass = mutableClassDefBy(type)
+            mutableClass.methods.forEachIndexed { methodIndex, method ->
+                sites.filter { it.method == methodIndex }
+                    .sortedByDescending { it.index }
+                    .forEach { site ->
+                        method.addInstructions(
+                            site.index,
+                            "invoke-static/range { v${site.register} .. v${site.register} }, " +
+                                "$REGISTRY_CLASS->capture(Ljava/lang/Object;)Ljava/lang/Object;\n" +
+                                "move-result-object v${site.register}",
+                        )
+                        hooked++
+                    }
             }
         }
 

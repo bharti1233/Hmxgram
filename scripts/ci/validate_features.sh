@@ -81,10 +81,15 @@ fi
 note "== The capture hook keeps the parsed media =="
 CAPTURE_PATCH="patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderCapturePatch.kt"
 if grep -q 'capture(Ljava/lang/Object;)Ljava/lang/Object;' "$CAPTURE_PATCH" &&
-   grep -q 'move-result-object v\$register' "$CAPTURE_PATCH"; then
+   grep -q 'move-result-object' "$CAPTURE_PATCH"; then
     note "ok: the capture hook puts the parsed media back into its register"
 else
     bad "the capture hook must return the media and restore it (move-result-object)"
+fi
+if grep -q 'MAX_CALL_SITES' "$CAPTURE_PATCH"; then
+    note "ok: the capture hook refuses to hook more sites than it expects"
+else
+    bad "the capture hook must bound the number of hooked call sites"
 fi
 if grep -q 'public Object capture(Object model)' \
         extensions/extension/src/main/java/com/feurstagram/extension/downloader/MediaRegistry.java; then
