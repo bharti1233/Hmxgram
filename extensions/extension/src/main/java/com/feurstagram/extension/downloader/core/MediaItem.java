@@ -11,8 +11,12 @@ import java.util.Objects;
  *
  * <p>A {@link DownloadKind#CAROUSEL} item is a container: it has no URL of its
  * own and carries its children. Every other kind needs an absolute
- * {@code http://} or {@code https://} URL. The constructor validates this, so
- * an invalid item can never reach the queue.
+ * {@code http://}, {@code https://} or {@code content://} URL. The constructor
+ * validates this, so an invalid item can never reach the queue.
+ *
+ * <p>{@code content://} is used only for user-selected share imports; the
+ * Android shell reads it through {@code ContentResolver}. The core never opens
+ * a stream.
  *
  * <p>Pure-Java core: no Android imports.
  */
@@ -151,7 +155,7 @@ public final class MediaItem {
             }
             return null;
         }
-        if (!isHttpUrl(url)) {
+        if (!isSupportedUrl(url)) {
             return DownloadError.INVALID_MEDIA;
         }
         if (isExpired(nowMs)) {
@@ -160,12 +164,14 @@ public final class MediaItem {
         return null;
     }
 
-    private static boolean isHttpUrl(String value) {
+    private static boolean isSupportedUrl(String value) {
         if (value == null) {
             return false;
         }
         String lower = value.trim().toLowerCase(java.util.Locale.ROOT);
-        return lower.startsWith("https://") || lower.startsWith("http://");
+        return lower.startsWith("https://")
+                || lower.startsWith("http://")
+                || lower.startsWith("content://");
     }
 
     @Override
@@ -293,9 +299,9 @@ public final class MediaItem {
                     throw new IllegalArgumentException("a carousel has no URL of its own");
                 }
             } else {
-                if (!isHttpUrl(url)) {
+                if (!isSupportedUrl(url)) {
                     throw new IllegalArgumentException(
-                            "a downloadable item needs an http(s) URL");
+                            "a downloadable item needs an http(s) or content URL");
                 }
                 if (!children.isEmpty()) {
                     throw new IllegalArgumentException(

@@ -39,6 +39,11 @@ public final class DownloaderCoreTest {
         run("repository history", DownloaderCoreTest::repositoryHistory);
         run("storage plans", DownloaderCoreTest::storagePlans);
         run("mime round trip", DownloaderCoreTest::mimeRoundTrip);
+        run("content share sources", DownloaderCoreTest::contentShareSources);
+        run("history codec round trip", DownloaderCoreTest::historyCodecRoundTrip);
+        run("history codec bounds and rejection",
+                DownloaderCoreTest::historyCodecBoundsAndRejection);
+        run("task restore validation", DownloaderCoreTest::taskRestoreValidation);
 
         if (!failures.isEmpty()) {
             System.out.println();
@@ -873,6 +878,255 @@ public final class DownloaderCoreTest {
             check(MediaNaming.mimeForExtension(extension) != null,
                     "extension maps back: " + extension);
         }
+    }
+
+    private static void contentShareSources() {
+        MediaItem shared = new MediaItem.Builder(DownloadKind.PHOTO)
+                .id("share-abc123")
+                .url("content://com.instagram.android.hmxshare/abc123.jpg")
+                .mimeType("image/jpeg")
+                .sizeBytes(4096L)
+                .owner("share")
+                .build();
+        eq(null, shared.downloadability(0L), "a content share is downloadable");
+        eq("id:share-abc123", MediaNaming.duplicateKey(shared),
+                "share items use their stable id");
+        eq("id:share-abc123", MediaNaming.duplicateKey(shared),
+                "share duplicate key is deterministic");
+        check(MediaNaming.buildFileName(shared, 10L).startsWith("hmx_share_share-abc123_photo_"),
+                "share file name is stable");
+
+        MediaItem uppercase = new MediaItem.Builder(DownloadKind.VIDEO)
+                .url("CONTENT://com.instagram.android.hmxshare/clip.mp4")
+                .mimeType("video/mp4")
+                .build();
+        eq(null, uppercase.downloadability(0L), "the scheme is case-insensitive");
+
+        String[] rejected = {
+                "file:///etc/passwd",
+                "javascript:alert(1)",
+                "ftp://cdn.example/a.jpg",
+                "data:image/jpeg;base64,AAAA",
+                "contentx://com.example/a.jpg",
+                ""
+        };
+        for (String url : rejected) {
+            expect(IllegalArgumentException.class,
+                    () -> new MediaItem.Builder(DownloadKind.PHOTO).url(url).build(),
+                    "unsupported share scheme rejected: " + url);
+        }
+
+        // A share is an ordinary task once it reaches the queue, so the same
+        // duplicate rule applies to a second share of identical bytes.
+        DownloadQueue queue = new DownloadQueue();
+        eq(DownloadQueue.EnqueueStatus.ADDED, queue.enqueue(shared).status(),
+                "share item enqueues");
+        eq(DownloadQueue.EnqueueStatus.DUPLICATE, queue.enqueue(shared).status(),
+                "the same share id is a duplicate");
+    }
+
+    private static void historyCodecRoundTrip() {
+        DownloadTask done = doneTask("task-1", "m1");
+        DownloadTask failed = new DownloadTask("task-2", item("m2"));
+        failed.start();
+        failed.fail(DownloadError.NETWORK);
+        DownloadTask cancelled = new DownloadTask("task-3", item("m3"));
+        cancelled.cancel();
+
+        String encoded = DownloadHistoryCodec.encode(
+                Arrays.asList(done, failed, cancelled));
+        check(encoded.startsWith("hmx-download-history\t1\n"), "versioned header");
+        check(!encoded.contains("\r"), "history uses only LF line endings");
+
+        List<DownloadTask> decoded = DownloadHistoryCodec.decode(encoded);
+        eq(3, decoded.size(), "three entries round trip");
+
+        DownloadTask doneCopy = decoded.get(0);
+        eq(done.id(), doneCopy.id(), "done id");
+        eq(DownloadState.DONE, doneCopy.state(), "done state");
+        eq(done.attempts(), doneCopy.attempts(), "done attempts");
+        eq(done.maxAttempts(), doneCopy.maxAttempts(), "done max attempts");
+        eq(done.createdAtMs(), doneCopy.createdAtMs(), "done creation time");
+        eq(null, doneCopy.error(), "done has no error");
+        eq(done.result(), doneCopy.result(), "done result");
+        eq(done.item().id(), doneCopy.item().id(), "done media id");
+        eq(done.item().kind(), doneCopy.item().kind(), "done media kind");
+        eq(done.duplicateKey(), doneCopy.duplicateKey(), "done duplicate key");
+
+        DownloadTask failedCopy = decoded.get(1);
+        eq(DownloadState.FAILED, failedCopy.state(), "failed state");
+        eq(DownloadError.NETWORK, failedCopy.error(), "failed error");
+        eq(null, failedCopy.result(), "failed has no result");
+        check(failedCopy.canRetry(), "restored failed task can still retry");
+
+        DownloadTask cancelledCopy = decoded.get(2);
+        eq(DownloadState.CANCELLED, cancelledCopy.state(), "cancelled state");
+        eq(DownloadError.CANCELLED, cancelledCopy.error(), "cancelled error");
+        eq(null, cancelledCopy.result(), "cancelled has no result");
+
+        eq(0, DownloadHistoryCodec.decode(
+                DownloadHistoryCodec.encode(new ArrayList<DownloadTask>())).size(),
+                "empty history round trips");
+
+        // Signed URLs must not leak their query or fragment into preferences.
+        MediaItem signed = photo("signed",
+                "https://cdn.example/a.jpg?token=secret#frag", "alice");
+        DownloadTask signedTask = new DownloadTask("task-signed", signed);
+        signedTask.start();
+        signedTask.succeed(DownloadResult.success("/gallery/signed.jpg", 5L));
+        String signedText = DownloadHistoryCodec.encode(
+                Arrays.asList(signedTask));
+        check(!signedText.contains("secret"), "query token is not persisted");
+        check(!signedText.contains("frag"), "fragment is not persisted");
+        eq("https://cdn.example/a.jpg",
+                DownloadHistoryCodec.decode(signedText).get(0).item().url(),
+                "URL survives without its query");
+        eq("id:signed", DownloadHistoryCodec.decode(signedText).get(0).duplicateKey(),
+                "id keeps duplicate detection stable");
+
+        // Metadata with tabs, newlines and non-ASCII characters is escaped.
+        MediaItem noisy = new MediaItem.Builder(DownloadKind.PHOTO)
+                .id("noisy\tid\nwith unicode \u00e9")
+                .url("https://cdn.example/a.jpg")
+                .owner("Jean\tH\u00e9rail")
+                .mimeType("image/jpeg")
+                .build();
+        DownloadTask noisyTask = new DownloadTask("task\tnoisy", noisy);
+        noisyTask.start();
+        noisyTask.succeed(DownloadResult.success("Pictures/HMXInsta/a\tb.jpg", 1L));
+        List<DownloadTask> noisyCopy = DownloadHistoryCodec.decode(
+                DownloadHistoryCodec.encode(Arrays.asList(noisyTask)));
+        eq(noisy.id(), noisyCopy.get(0).item().id(), "tab/newline/unicode id round trips");
+        eq(noisy.owner(), noisyCopy.get(0).item().owner(), "unicode owner round trips");
+        eq("Pictures/HMXInsta/a\tb.jpg", noisyCopy.get(0).result().path(),
+                "tab in a path round trips");
+    }
+
+    private static void historyCodecBoundsAndRejection() {
+        DownloadTask task = doneTask("task-1", "m1");
+        String oneLine = DownloadHistoryCodec.encode(Arrays.asList(task));
+        String header = "hmx-download-history\t1\n";
+        String taskLine = oneLine.substring(header.length());
+
+        List<DownloadTask> many = new ArrayList<DownloadTask>();
+        for (int i = 0; i < DownloadHistoryCodec.MAX_ENTRIES + 5; i++) {
+            many.add(doneTask("task-" + i, "media-" + i));
+        }
+        eq(DownloadHistoryCodec.MAX_ENTRIES,
+                DownloadHistoryCodec.decode(DownloadHistoryCodec.encode(many)).size(),
+                "encoding caps at the documented history size");
+
+        StringBuilder tooMany = new StringBuilder(header);
+        for (int i = 0; i < DownloadHistoryCodec.MAX_ENTRIES + 1; i++) {
+            tooMany.append(taskLine);
+        }
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(tooMany.toString()),
+                "decoding more than the cap is rejected");
+
+        StringBuilder duplicate = new StringBuilder(header);
+        duplicate.append(taskLine).append(taskLine);
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(duplicate.toString()),
+                "duplicate task ids are rejected");
+
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(null), "null history rejected");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(""), "empty history rejected");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode("hmx-download-history\t2\n"),
+                "unknown version rejected");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode("other\t1\n"),
+                "unknown header rejected");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(header + "task\n"),
+                "truncated entry rejected");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(header + "\n"),
+                "empty entry line rejected");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(header + "not-a-task" + taskLine),
+                "missing task marker rejected");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(repeat("x", DownloadHistoryCodec.MAX_ENCODED_LENGTH + 1)),
+                "oversized history rejected");
+
+        DownloadTask active = new DownloadTask("active", item("m-active"));
+        active.start();
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.encode(Arrays.asList(active)),
+                "active tasks cannot be encoded");
+
+        // A carousel container is never a queued task, so its presence in
+        // history is corruption rather than a supported entry.
+        String badKind = taskLine.replace("\tPHOTO\t", "\tCAROUSEL\t");
+        check(!badKind.equals(taskLine), "test fixture changed the kind");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(header + badKind),
+                "carousel containers are rejected");
+
+        String badState = taskLine.replace("\tDONE\t", "\tRUNNING\t");
+        check(!badState.equals(taskLine), "test fixture changed the state");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(header + badState),
+                "non-terminal states are rejected");
+
+        String badError = taskLine.replace("\t\t%2Fgallery%2F",
+                "\tnot-a-code\t%2Fgallery%2F");
+        check(!badError.equals(taskLine), "test fixture changed the error");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(header + badError),
+                "unknown error codes are rejected");
+
+        String badResult = taskLine.replace("\t1\tm1\t", "\t-1\tm1\t");
+        check(!badResult.equals(taskLine), "test fixture changed the result");
+        expect(IllegalArgumentException.class,
+                () -> DownloadHistoryCodec.decode(header + badResult),
+                "invalid result bytes are rejected");
+    }
+
+    private static void taskRestoreValidation() {
+        MediaItem media = item("restore");
+        DownloadResult result = DownloadResult.success("/gallery/restore.jpg", 7L);
+
+        DownloadTask restored = DownloadTask.restore("task-r", media, 3, 10L,
+                DownloadState.DONE, 1, null, result);
+        eq(DownloadState.DONE, restored.state(), "restore done state");
+        eq(1, restored.attempts(), "restore attempts");
+        eq(result, restored.result(), "restore result");
+        eq(3, restored.maxAttempts(), "restore max attempts");
+        eq(10L, restored.createdAtMs(), "restore creation time");
+
+        expect(IllegalArgumentException.class,
+                () -> DownloadTask.restore("task-r", media, 3, 10L,
+                        DownloadState.RUNNING, 0, null, null),
+                "an active state cannot be restored");
+        expect(IllegalArgumentException.class,
+                () -> DownloadTask.restore("task-r", media, 3, 10L,
+                        DownloadState.DONE, 1, DownloadError.NETWORK, result),
+                "a completed task cannot carry an error");
+        expect(IllegalArgumentException.class,
+                () -> DownloadTask.restore("task-r", media, 3, 10L,
+                        DownloadState.DONE, 1, null, null),
+                "a completed task needs a result");
+        expect(IllegalArgumentException.class,
+                () -> DownloadTask.restore("task-r", media, 3, 10L,
+                        DownloadState.FAILED, 1, null, null),
+                "a failed task needs an error");
+        expect(IllegalArgumentException.class,
+                () -> DownloadTask.restore("task-r", media, 3, 10L,
+                        DownloadState.FAILED, 1, DownloadError.CANCELLED, null),
+                "cancellation is not a failure error");
+        expect(IllegalArgumentException.class,
+                () -> DownloadTask.restore("task-r", media, 3, 10L,
+                        DownloadState.CANCELLED, 0, DownloadError.NETWORK, null),
+                "a cancelled task cannot carry a network error");
+        expect(IllegalArgumentException.class,
+                () -> DownloadTask.restore("task-r", media, 3, 10L,
+                        DownloadState.DONE, 4, null, result),
+                "attempts cannot exceed maxAttempts");
     }
 
     // ---------------------------------------------------------------- helpers
