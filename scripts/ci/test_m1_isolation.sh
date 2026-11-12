@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+#
+# M1 regression gate: prove the protected M0 baseline is unchanged and that
+# the milestone is isolated to the downloader core, its tests and its docs.
+#
+# Two independent checks:
+#   1. a pinned SHA-256 over every protected source/configuration file;
+#   2. a diff against the M0 milestone commit (b9326c0) limited to the exact
+#      M1 allowlist.
+#
+# The APK-level protected-method verifier still runs in the gated build; this
+# script is the offline, no-build regression guard that runs on every CI run.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+
+BASE="${HMX_M1_BASE:-b9326c053b22245bf7d19a8ec63c5a150075dc4c}"
+# Computed from the M0 milestone commit over the protected paths listed below.
+PINNED_PROTECTED_DIGEST="8e6a6c5d306e62f2f11599673d54477e217cbc75a9c424692dcc4c6dd884ddde"
+CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
+
+fail=0
+note() { printf '%s\n' "$*"; }
+bad() { printf 'ERROR: %s\n' "$*" >&2; fail=1; }
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/hmx-m1-isolation.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+
+note "== M1 base commit =="
+if git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+  note "ok: base $BASE is available"
+else
+  bad "base commit $BASE is not available; fetch full history (fetch-depth: 0)"
+fi
+
+note "== Protected baseline digest =="
+actual_digest="$(
+  {
+    git ls-files -z -- \
+      patches/src \
+      extensions/extension/src/main/java/com/feurstagram/extension \
+      extensions/extension/src/main/AndroidManifest.xml \
+      extensions/extension/build.gradle.kts \
+      scripts/ci/protected_methods.json \
+      scripts/ci/verify_protected_methods.py \
+      scripts/ci/test_protected_methods.sh \
+      build.sh \
+      .github/workflows/apk.yml \
+    | grep -zv '^extensions/extension/src/main/java/com/feurstagram/extension/downloader/' \
+    | LC_ALL=C sort -z \
+    | while IFS= read -r -d '' file; do
+        printf '%s\n' "$file"
+        sha256sum "$file" | cut -d' ' -f1
+      done
+  } | sha256sum | cut -d' ' -f1
+)"
+if [ "$actual_digest" = "$PINNED_PROTECTED_DIGEST" ]; then
+  note "ok: protected files match the pinned M0 digest"
+else
+  bad "protected files changed (expected $PINNED_PROTECTED_DIGEST, got $actual_digest)"
+fi
+
+note "== Protected paths unchanged since the M0 milestone commit =="
+protected_changed="$(git diff --name-only "$BASE" -- \
+  patches/src \
+  extensions/extension/src/main/java/com/feurstagram/extension \
+  extensions/extension/src/main/AndroidManifest.xml \
+  extensions/extension/build.gradle.kts \
+  scripts/ci/protected_methods.json \
+  scripts/ci/verify_protected_methods.py \
+  scripts/ci/test_protected_methods.sh \
+  build.sh \
+  .github/workflows/apk.yml \
+  | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/downloader/' || true)"
+if [ -z "$protected_changed" ]; then
+  note "ok: no protected path changed"
+else
+  bad "protected paths changed since $BASE:"
+  printf '%s\n' "$protected_changed" >&2
+fi
+
+note "== Protected-method manifest pin =="
+if python3 - <<'PY'
+import json
+import sys
+
+manifest = json.load(open("scripts/ci/protected_methods.json"))
+baseline = manifest.get("baseline") or {}
+gate = manifest.get("gate") or {}
+surfaces = gate.get("surfaces") or []
+problems = []
+if baseline.get("apk_sha256") != "6a327db6ec9c0ccc83f82a76eaf62451c6fac526131e6f12b260bec2f5cd2822":
+    problems.append("baseline APK digest changed")
+if baseline.get("commit") != "a5bace00e84094f06622ff8f47ae60990ded8e09":
+    problems.append("baseline commit changed")
+if len(surfaces) != 12:
+    problems.append("expected 12 gate surfaces, found %d" % len(surfaces))
+ids = [s.get("id") for s in surfaces]
+if len(ids) != len(set(ids)):
+    problems.append("duplicate gate surface ids")
+if "ghost.network.guard" not in [
+        item.get("id") if isinstance(item, dict) else item
+        for item in (manifest.get("rejected_exceptions") or [])
+]:
+    problems.append("ghost.network.guard is not rejected")
+if problems:
+    for problem in problems:
+        print("ERROR: " + problem, file=sys.stderr)
+    sys.exit(1)
+PY
+then
+  note "ok: 12 surfaces, baseline APK pin and rejected ghost guard intact"
+else
+  bad "protected_methods.json no longer matches the M0 baseline"
+fi
+
+note "== M1 changes are confined to the allowlist =="
+{
+  git diff --name-only "$BASE" -- .
+  git ls-files --others --exclude-standard
+} | LC_ALL=C sort -u > "$WORK/changed"
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  case "$path" in
+    extensions/extension/src/main/java/com/feurstagram/extension/downloader/core/*) ;;
+    extensions/extension/src/test/java/com/feurstagram/extension/downloader/core/*) ;;
+    scripts/ci/test_downloader_logic.sh) ;;
+    scripts/ci/validate_features.sh) ;;
+    scripts/ci/test_m1_isolation.sh) ;;
+    scripts/ci/validate_repo.sh) ;;
+    .github/workflows/ci.yml) ;;
+    docs/HMX_INSTA_M1_DOWNLOADER_CORE.md) ;;
+    docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
+    docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
+    CHANGELOG.md) ;;
+    *) bad "M1 changed a path outside the allowlist: $path" ;;
+  esac
+done < "$WORK/changed"
+if [ "$fail" -eq 0 ]; then
+  note "ok: every changed path belongs to the M1 milestone"
+fi
+
+note "== Core has no Android imports =="
+if [ -d "$CORE_DIR" ] && grep -RInE '^[[:space:]]*import[[:space:]]+(android|androidx)\.' \
+    "$CORE_DIR" --include='*.java' >/dev/null 2>&1; then
+  bad "core imports an Android class"
+else
+  note "ok: core imports no Android class"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '\nM1 isolation check failed.\n' >&2
+  exit 1
+fi
+printf '\nM1 isolation check passed.\n'
