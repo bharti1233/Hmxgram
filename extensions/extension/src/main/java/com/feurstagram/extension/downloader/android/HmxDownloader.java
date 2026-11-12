@@ -13,6 +13,7 @@ import com.feurstagram.extension.downloader.core.DownloadState;
 import com.feurstagram.extension.downloader.core.DownloadTask;
 import com.feurstagram.extension.downloader.core.MediaItem;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -262,6 +263,7 @@ public final class HmxDownloader {
     }
 
     private void dispatch() {
+        List<DownloadTask> rejected = new ArrayList<DownloadTask>();
         synchronized (dispatchLock) {
             if (shutdown) {
                 return;
@@ -280,9 +282,14 @@ public final class HmxDownloader {
                     cancelled.cancel();
                     cancellations.remove(task.id());
                     queue.cancel(task.id());
-                    recordTerminal(task.id());
+                    rejected.add(task);
                 }
             }
+        }
+        // The terminal bookkeeping writes to preferences and the file system,
+        // so it runs outside the dispatch lock.
+        for (DownloadTask task : rejected) {
+            recordTerminal(task.id());
         }
     }
 
