@@ -166,6 +166,52 @@ Recommended dispatch payload:
 `run_install_test=false` is deliberate: the hosted runner has no device. The
 install and feature checks happen on the OPPO A38.
 
+### 5.1 Building a milestone that ships a default-off patch
+
+A patch that is `default = false` in its source is **not applied** by the
+build: the CLI only applies the default-enabled patches plus the ones named
+with `-e`. The `Downloader share target` patch is default-off on purpose — it
+declares an exported activity — so a build that must carry it asks for it
+explicitly:
+
+* `build.sh --downloader` adds `-e "Downloader share target"`;
+* the workflow exposes it as the boolean input `enable_downloader`
+  (default `false`, so no existing build changes);
+* when it is enabled the patch-report expectation switches to the 15-name
+  list and `MIN_APPLIED_PATCHES` becomes 15, so the build **fails** if the
+  patch did not apply;
+* the publish step re-checks the patch report before uploading, so an APK
+  without the patch is never published.
+
+Nothing else changes: the environment approval, the required reviewer, the
+protected-method verification, the signer pins and the publish gates all
+apply exactly as before.
+
+Dispatch payload for the M2 device build:
+
+```json
+{
+  "ref": "feature/hmx-downloader-ghost-mode-v2",
+  "inputs": {
+    "instagram_version": "454.0.0.54.77",
+    "base_apk_kind": "apkm",
+    "clone": false,
+    "allow_throwaway_signature": true,
+    "allow_signature_bypass": false,
+    "publish_test_apk": true,
+    "enable_downloader": true,
+    "run_install_test": false,
+    "disable_patches": ""
+  }
+}
+```
+
+`allow_signature_bypass=false` is mandatory for a published build: the
+publish step refuses to upload a build with the Instagram signature-check
+bypass enabled. The published APK is therefore throwaway-signed and must
+replace the stock app on the device (a different signer cannot update an
+installed package).
+
 The old temporary-branch workaround is **retired**. Do not create a throwaway
 branch with a relaxed guard, and do not dispatch a build from any ref outside
 the allowlist.

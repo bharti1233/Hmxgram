@@ -222,6 +222,19 @@ else
   note "ok: apk.yml build ref guard has no wildcard"
 fi
 
+# The downloader share target is a default-off patch. The build must only be
+# able to enable it through one explicit, reviewed switch, and the patch report
+# must then have to list it.
+if grep -qF 'enable_downloader:' .github/workflows/apk.yml && \
+   grep -qF 'args+=(--downloader)' .github/workflows/apk.yml && \
+   grep -qF 'EXPECTED_PATCHES_WITH_DOWNLOADER' .github/workflows/apk.yml && \
+   grep -qF -- '--downloader) ENABLE_DOWNLOADER=1 ;;' build.sh && \
+   grep -qF 'ARGS+=(-e "Downloader share target")' build.sh; then
+  note "ok: the downloader share target is only reachable through the explicit downloader build switch"
+else
+  bad "the downloader share target must only be enabled through the explicit downloader build switch"
+fi
+
 if grep -qF 'bash "$VALIDATE_INPUT"' build.sh && \
    grep -qF 'bash "$VALIDATE_BUNDLE"' build.sh && \
    grep -qF 'bash "$VALIDATE_STANDALONE" --stage merge' build.sh && \

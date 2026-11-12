@@ -3,7 +3,7 @@
 # Feurstagram build pipeline.
 #
 #   ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug]
-#                [--allow-signature-bypass]
+#                [--allow-signature-bypass] [--downloader]
 #
 # Builds the patch bundle (.mpp) from the Gradle project, then applies it to the
 # given Instagram APK with the local Morphe CLI, producing ./feurstagram.apk.
@@ -15,6 +15,12 @@
 #               keep the "Signature check bypass" patch. The patch is DISABLED
 #               by default; enable it only for throwaway-signed test builds.
 #               It is refused when signing with the release keystore.
+#   --downloader
+#               apply the "Downloader share target" patch. The patch is
+#               DISABLED by default because it declares an exported activity;
+#               enable it only for a reviewed build that must carry the
+#               downloader share target (the M2 device test). The caller is
+#               expected to assert the patch in the patch report.
 #
 # Split bundles: an APKMirror .apkm (or .xapk/.apks) is a zip of base.apk plus
 # split APKs. The Morphe CLI patches one APK, so those are merged into a single
@@ -94,18 +100,20 @@ CLONE=0
 INSTALL=0
 DEBUG=0
 ALLOW_SIGNATURE_BYPASS=0
+ENABLE_DOWNLOADER=0
 for arg in "$@"; do
     case "$arg" in
         --clone) CLONE=1 ;;
         --install) INSTALL=1 ;;
         --debug) DEBUG=1 ;;
         --allow-signature-bypass) ALLOW_SIGNATURE_BYPASS=1 ;;
+        --downloader) ENABLE_DOWNLOADER=1 ;;
         *) APK="$arg" ;;
     esac
 done
 
 if [ -z "$APK" ] || [ ! -f "$APK" ]; then
-    echo "usage: ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug] [--allow-signature-bypass]" >&2
+    echo "usage: ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug] [--allow-signature-bypass] [--downloader]" >&2
     exit 1
 fi
 if [ -z "$CLI" ]; then
@@ -219,6 +227,11 @@ mkdir -p "$DIR/build"
 ARGS=(-jar "$CLI" patch -p "$MPP" -f -r "$REPORT" -o "$OUT")
 [ "$CLONE" -eq 1 ] && ARGS+=(-e "Clone")
 [ "$DEBUG" -eq 1 ] && ARGS+=(-e "Debug bridge")
+# The downloader share target is default-off in the patch source: it declares
+# an exported activity, so it is only applied when the caller explicitly asks
+# for it. The patch report then has to list it, which verify_patch_report.py
+# enforces through EXPECTED_PATCHES.
+[ "$ENABLE_DOWNLOADER" -eq 1 ] && ARGS+=(-e "Downloader share target")
 
 # With a keystore password, defer signing to apksigner (the CLI can't read the
 # PKCS12 keystore); otherwise let the CLI sign with a throwaway key for testing.
