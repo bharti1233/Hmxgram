@@ -223,15 +223,18 @@ the protected digest and the exact path allowlist.
   the second enqueue a duplicate, so no double save, only wasted I/O.
 * A permanently failed task keeps its share cache copy for a manual retry.
   **Now bounded:** `ShareCacheJanitor` applies `CacheRetentionPolicy` at
-  downloader start and when the queue becomes idle — never while work is
-  active — so a live file is never a candidate. Files referenced by an active
-  task or by the pending ledger are protected whatever their age; everything
-  else is evicted past the grace window, oldest first, until the byte and
-  file-count budgets hold.
+  downloader start (before the first dispatch) and when the queue becomes
+  idle. A share copy is protected by name whenever an active task or the
+  pending ledger references it, whatever its age. A temporary download file is
+  referenced by nothing but the running worker, so it is only reclaimed when
+  the caller states that no task is running — the byte budget can evict a file
+  that is still inside the grace window, so the temp sweep must never race a
+  live task.
 
 *Test evidence:* `DownloaderCoreTest` → "cache retention policy" (an active
 task's file is never evicted; count budget evicts oldest first; byte budget
-evicts oldest until under the cap; invalid input rejected).
+evicts oldest until under the cap; the budget evicts a fresh file when the
+cache is over budget; invalid input rejected).
 
 ---
 

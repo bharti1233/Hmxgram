@@ -111,8 +111,11 @@ public final class HmxDownloader {
             }
             recoverPendingLocked();
         }
-        dispatch();
+        // The sweep runs before the first dispatch: the share copies of the
+        // replayed items are protected by the pending ledger, and no task is
+        // running yet, so no temporary file can be reclaimed by mistake.
         sweepCache();
+        dispatch();
     }
 
     /**
@@ -385,7 +388,9 @@ public final class HmxDownloader {
 
     private void sweepCache() {
         try {
-            ShareCacheJanitor.sweep(context, activeShareUrls());
+            // A temporary download file is only reclaimed when no task is
+            // running; a share copy is protected by name in either case.
+            ShareCacheJanitor.sweep(context, activeShareUrls(), isIdle());
         } catch (RuntimeException e) {
             Log.w(TAG, "cache sweep failed", e);
         }
