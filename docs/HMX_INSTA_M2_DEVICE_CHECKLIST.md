@@ -6,7 +6,13 @@ recorded as **NOT TESTED**. Nothing in this document may be promoted to PASS
 without an observed result on a physical device, together with the device
 serial and the installed `versionName` / `versionCode`.
 
-**Scope:** the eight checks in
+**Code status:** the seven audit findings F1–F7 of the M2 review are now
+*implemented* on `feature/hmx-m2-android-shell` (section 2 lists the fix and
+its test evidence). "Static readiness" below therefore describes reviewed
+code, never an observed device result. Every device row stays NOT TESTED
+until the session in section 3 is actually run.
+
+**Scope:** the ten checks in
 `docs/HMX_INSTA_M2_ANDROID_SHELL.md` §6, expanded for Android 15 / ColorOS 15.
 No APK has been built or dispatched. Install the reviewed build only after
 PR #20 leaves draft; these commands assume it is already installed.
@@ -31,110 +37,201 @@ PR #20 leaves draft; these commands assume it is already installed.
 
 | # | Check (M2 doc §6) | Device result | Static readiness | Blocking issue |
 | --- | --- | --- | --- | --- |
-| 1 | Share a photo → `Pictures/HMXInsta`, notification, history | **NOT TESTED** | **FAIL** | F1: `POST_NOTIFICATIONS` is never requested, so no notification can appear on a fresh Android 13+ install |
-| 2 | Share a reel/video → `Movies/HMXInsta` | **NOT TESTED** | PASS | Large videos run without a foreground service (F3) |
+| 1 | Share a photo → `Pictures/HMXInsta`, notification, history | **NOT TESTED** | PASS (F1 fixed) | One notification prompt per install; denial is respected and the save still completes |
+| 2 | Share a reel/video → `Movies/HMXInsta` | **NOT TESTED** | PASS (F3 fixed) | Foreground `dataSync` service keeps the queue alive; ColorOS limits are documented |
 | 3 | Share the same item twice → duplicate, no second file | **NOT TESTED** | PASS | — |
-| 4 | Cancel a large video → no row, temp gone | **NOT TESTED** | **FAIL** | F5: M2 has no user-visible cancel action, and cancellation is not checked during the MediaStore copy |
-| 5 | Deny notifications → save still completes | **NOT TESTED** | PASS | This is the shipped default; it also means check 1 fails by default (F1) |
-| 6 | Storage failure → `storage` error, no pending row | **NOT TESTED** | PASS | Abrupt process death can leave an `IS_PENDING` row (F6) |
-| 7 | Restart → history reloads, duplicates still detected | **NOT TESTED** | PASS | In-flight work is lost and left unreported (F3) |
+| 4 | Cancel a large video → no row, temp gone | **NOT TESTED** | PASS in code, **no trigger yet** | F5: cancellation now covers the whole lifecycle, but the cancel *action* is M3 scope (settings page) |
+| 5 | Deny notifications → save still completes | **NOT TESTED** | PASS | One prompt per install; a denial is remembered and never re-asked |
+| 6 | Storage failure → `storage` error, no pending row | **NOT TESTED** | PASS | A killed process can still leave a stale pending row until the platform cleans it (F6) |
+| 7 | Restart → history reloads, duplicates still detected | **NOT TESTED** | PASS (F3 fixed) | Pending work is replayed from the ledger on the next start |
 | 8 | Instagram login/signup/feed/session unchanged | **NOT TESTED** | PASS (gates) | Protected digest and 12 surfaces unchanged; still requires a device check |
 
 Additional readiness checks requested for M2:
 
 | Area | Device result | Static readiness | Notes |
 | --- | --- | --- | --- |
-| Android permissions | **NOT TESTED** | **FAIL** | Only `POST_NOTIFICATIONS` is added; it is declared but never requested (F1). No storage permission is requested, by design |
-| MediaStore behaviour | **NOT TESTED** | PASS | `IS_PENDING` insert → copy → publish → delete-on-failure (F6 is the kill case) |
-| Share-target registration | **NOT TESTED** | PASS | Exported activity with `SEND`/`SEND_MULTIPLE` for `image/*`, `video/*`; private provider |
-| `content://` handling | **NOT TESTED** | PASS | Scheme, MIME, count and size validated; copy happens while the grant is alive |
-| Worker lifecycle / retry | **NOT TESTED** | PASS with risk | In-process pool, 2 concurrent, 3 attempts; no foreground service and no process-death resumption (F3) |
-| Cancellation | **NOT TESTED** | **FAIL** | No user-facing trigger; publish phase ignores the cancel flag (F5) |
+| Android permissions | **NOT TESTED** | PASS (F1 fixed) | `POST_NOTIFICATIONS` is requested once per install; `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_DATA_SYNC` are declared for the service. No storage permission, by design |
+| MediaStore behaviour | **NOT TESTED** | PASS | `IS_PENDING` insert → copy → publish → delete-on-failure; a late cancellation deletes the published row (F5) |
+| Share-target registration | **NOT TESTED** | PASS | Exported activity with `SEND`/`SEND_MULTIPLE` for `image/*`, `video/*`, `audio/*`; private provider; non-exported service (F6) |
+| `content://` handling | **NOT TESTED** | PASS (F4 fixed) | `EXTRA_STREAM` **and** `ClipData` are merged; scheme, MIME, count and size validated; copy happens while the grant is alive |
+| Worker lifecycle / retry | **NOT TESTED** | PASS (F3 fixed) | Foreground `dataSync` service + pending-work ledger replay; in-process pool, 2 concurrent, 3 attempts |
+| Cancellation | **NOT TESTED** | PASS in code, trigger in M3 | Signal checkpoints before download, per buffer, and inside the publish; the user-facing cancel action is still M3 scope |
 | History persistence / duplicates | **NOT TESTED** | PASS | Terminal-only history, 100 entries, query stripped, seeded on next start |
-| Notification behaviour / progress | **NOT TESTED** | **FAIL** | Permission gap (F1); progress aggregation otherwise sound |
-| Audio extraction | **NOT TESTED** | **FAIL** | Unreachable from the share target: `ShareImporter` only creates PHOTO/VIDEO (F2) |
+| Notification behaviour / progress | **NOT TESTED** | PASS (F1 fixed) | Progress aggregation unchanged; the permission is requested once per install |
+| Audio handling | **NOT TESTED** | PASS for direct audio (F2) | An `audio/*` share is saved directly to `Music/HMXInsta`. Video→audio extraction is policy-gated but has **no M2 entry point**; it is not claimed to work |
+| Cache retention | **NOT TESTED** | PASS (F7 fixed) | The janitor only runs at start and when the queue is idle, so an active task's files are never candidates |
 
 ---
 
-## 2. Findings to resolve before the draft leaves draft
+## 2. Findings: status after the M2 audit fixes
 
-### F1 — `POST_NOTIFICATIONS` is declared but never requested (blocking)
+Each finding below lists the review text, the fix on
+`feature/hmx-m2-android-shell`, the automated test evidence, and what still
+requires a device. **None of these is a device result.**
 
-`DownloaderShareTargetPatch.kt` adds the permission, but no code calls
-`requestPermissions(...)`; `DownloadNotifier.canNotify()` simply returns false
-when the permission is missing (`DownloadNotifier.java:149-155`). On a fresh
-Android 13+ install the permission is denied, so both the progress notification
-(4101) and the result notification (4102) are silently skipped. The save still
-works, which is why this is invisible in a gallery-only test.
+### F1 — `POST_NOTIFICATIONS` was declared but never requested — FIXED
 
-Options: request the permission from `ShareTargetActivity` after a successful
-enqueue (one-time rationale + `requestPermissions`, no Instagram UI), or accept
-"no notification" and change the M2 exit criterion and check 1. The first
-option matches the documented checklist.
+*Review:* the permission was added to the manifest, but no code called
+`requestPermissions(...)`, so on a fresh Android 13+ install both the progress
+notification (4101) and the result notification (4102) were silently skipped.
 
-### F2 — Audio extraction cannot be reached in M2 (blocking for check 8 claims)
+*Fix:* `ShareTargetActivity` now asks once per install through
+`NotificationPermissionPolicy`: it requests only on Android 13+, only when the
+permission is not granted, and only when the install has not asked before. The
+"asked" flag lives in `hmx_download_prefs` / `notification_permission_asked`
+and is written **before** the dialog appears, so a process recreation cannot
+produce a second prompt. A denial is honoured permanently: the import resumes
+in `onRequestPermissionsResult` regardless of the answer, and the save
+completes either way. The foreground service does not depend on the
+permission — Android hides the notification, the service still runs.
 
-`DownloadWorker` only extracts when `StoragePlan.isAudio()`
-(`DownloadWorker.java:75`), which requires `DownloadKind.AUDIO`. `ShareImporter`
-always builds `PHOTO` or `VIDEO` (`ShareImporter.java:97-99`), and M2 has no
-other enqueue entry point. The class, its docs and the M2 scope table therefore
-describe a path no user can trigger. Either add an explicit audio action (M3
-territory) or move audio extraction out of the M2 scope and reword
-`docs/HMX_INSTA_M2_ANDROID_SHELL.md`.
+*Test evidence:* `DownloaderCoreTest` → "notification permission policy"
+(asserts skip before Android 13, skip when granted, request on a fresh
+install, skip after a denial on any version).
 
-### F3 — No foreground service and no process-death restoration (risk, decision needed)
+*Still NOT TESTED:* the real dialog on the device, the denial path, and that
+the app never asks twice (see checks 1 and 5).
 
-`HmxDownloader` uses a plain in-process `ExecutorService`. The only startup
-restoration is `queue.seedSaved(repository)`, which seeds duplicate keys from
-terminal history; queued/running tasks are neither persisted nor resumed. If
-ColorOS reclaims the process during a long video:
+### F2 — Audio was unreachable from the share target — FIXED, with an honest limit
 
-* the download stops with no failure history entry and no notification;
-* `cache/hmx-download-*.part` and `cache/hmx-share/*` are left behind;
-* an `IS_PENDING` row inserted before the kill can stay pending until the
-  platform cleans stale rows.
+*Review:* `DownloadWorker` only extracts when `StoragePlan.isAudio()`, which
+requires `DownloadKind.AUDIO`, and `ShareImporter` only ever created
+`PHOTO`/`VIDEO`. The class and the scope table described a path no user could
+trigger.
 
-Decide whether M2 is "the app must stay foreground/unrestricted while saving"
-(documented limitation) or M2 needs a foreground service with a
-`dataSync`/`shortService` type. Android 15 enforces foreground-service types,
-so this is a design change, not a one-line fix.
+*Fix:* `ShareImporter` now maps an `audio/*` share to `DownloadKind.AUDIO`, so
+a shared audio file is reachable and is saved directly to `Music/HMXInsta`
+(`.m4a` fallback naming for a generic MIME). The extraction decision moved
+into `AudioSourcePolicy`: `audio/*` saves directly; `video/mp4`,
+`video/3gpp`, `video/x-m4v` and `video/quicktime` would be extracted;
+every other container is refused up front with `unsupported`. `AudioExtractor`
+reports failure when the muxer produced zero samples, so a silent file is
+never published.
 
-### F4 — `EXTRA_STREAM` only, no `ClipData` fallback (compatibility)
+*Honest limit:* video→audio extraction still has **no M2 entry point** — a
+video share stays a video. The code path exists and is policy-gated, but
+until M3 adds an explicit "save as audio" action it cannot be exercised from
+the UI, so it is **not claimed to work** and its device row stays NOT TESTED.
 
-`ShareIntentParser` reads `EXTRA_STREAM` only
-(`ShareIntentParser.java:56-63`). Senders that put the URI only in
-`Intent.getClipData()` are rejected with "nothing to share". Instagram normally
-uses `EXTRA_STREAM`; verify on the actual build and add a ClipData fallback if
-the share sheet sends nothing.
+*Test evidence:* `DownloaderCoreTest` → "audio source policy" (direct vs
+extractable vs unsupported per container, case-insensitive, parameter-tolerant).
 
-### F5 — Cancellation has no trigger and no publish check (check 4 cannot run)
+*Still NOT TESTED:* a direct `audio/*` share on the device, and the
+`unsupported` failure for a container the policy refuses.
 
-`HmxDownloader.cancel(...)` exists, but nothing in the M2 UI calls it. Even if
-it did, `DownloadWorker` checks the cancel flag only while reading the source,
-not during `MediaStoreWriter.publish(...)` (`DownloadWorker.java:84`), so a
-cancel that lands during the gallery copy still publishes the file. Check 4 is
-not performable as written.
+### F3 — No foreground service, no process-death restoration — FIXED, limits documented
 
-### F6 — Abrupt kill can leave an `IS_PENDING` row
+*Review:* the queue ran on a plain in-process `ExecutorService`. A ColorOS
+reclaim during a long video stopped the download with no failure entry, no
+notification and leftover files.
 
-The `finally` block deletes the pending row on failure, but a `SIGKILL` skips
-`finally`. Android's MediaStore eventually cleans stale pending rows; the check
-"no pending row left" must distinguish a graceful failure (passes) from a
-force-stop mid-write (may leave a row until cleanup).
+*Fix:* `DownloadService` is a declared, non-exported `dataSync` foreground
+service (`foregroundServiceType="dataSync"`), started from the visible share
+activity — never from the background. It holds a foreground notification while
+the queue has work and stops itself when the queue drains. It performs no work
+of its own. Independently of the restart, every accepted item is written to
+`PendingWorkStore` before dispatch and removed when the task reaches a
+terminal state, so the next start replays the ledger; `START_STICKY` lets the
+system restart the service after a kill.
 
-### F7 — Low-severity notes
+*Documented limits:* aggressive ColorOS battery modes can delay or refuse the
+service restart, and Android 15 caps `dataSync` foreground services at six
+hours per day. In both cases the queued work resumes the next time the app
+opens; it may simply not finish in the background.
 
-* `MediaItem` accepts `http://`, but the patched app blocks cleartext by
-  default; an `http` CDN URL becomes a network failure. Instagram uses HTTPS.
-* History stores `relativeDirectory + "/" + fileName` on Android 10+ and an
-  absolute path on older versions; the field is display-only.
-* The exported share activity has no caller permission. Validation bounds the
-  damage (10 items, 512 MiB each, image/video only), but any app can make the
-  device copy up to ~5 GiB into cache.
+*Test evidence:* `DownloaderCoreTest` → "pending work codec round trip" and
+"pending work codec rejection" (bounded, versioned, duplicate-rejecting,
+corruption-rejecting ledger format); the service lifecycle itself is a device
+check.
+
+*Still NOT TESTED:* the service staying alive with the screen locked, the
+ledger replay after a kill, and the ColorOS behaviour (checks 2 and 7).
+
+### F4 — `EXTRA_STREAM` only, no `ClipData` fallback — FIXED
+
+*Review:* `ShareIntentParser` read `EXTRA_STREAM` only, so a sender that puts
+the URI only in `Intent.getClipData()` was rejected with "nothing to share".
+
+*Fix:* `SharedStreams` merges both sources — the extras first, then the
+ClipData items — collapses an item present in both (exactly one download),
+ignores blank entries, and applies the 10-item cap to the merged set.
+`ShareIntentParser` uses the merged list and keeps the per-item MIME and size
+validation.
+
+*Test evidence:* `DownloaderCoreTest` → "shared stream selection" (extras
+only, clip only, duplicate across sources, union order, blanks ignored, cap
+over the union, immutable result).
+
+*Still NOT TESTED:* the actual Instagram share sheet on the device, including
+a sender that only fills `ClipData`.
+
+### F5 — Cancellation had no trigger and no publish check — FIXED in code, trigger is M3
+
+*Review:* nothing in the UI called `HmxDownloader.cancel(...)`, and the
+cancel flag was only checked while reading the source, so a cancel landing
+during the gallery copy still published the file.
+
+*Fix:* each running task owns a `CancellationSignal` that is checked before
+the download, between the download and the audio step, on every copy buffer,
+before the MediaStore insert and before the row is published.
+`MediaStoreWriter` deletes the pending row when the copy is cancelled or
+fails; a cancel that lands after publication deletes the published row
+through `discard`/`discardByPath`, so a cancelled task cannot leave a
+finished file behind. `GuardedCopy` rolls the destination back exactly once.
+
+*Honest limit:* M2 still has **no user-facing cancel action** — the button
+belongs to the M3 settings page. The code path is correct and unit-tested;
+the device check stays NOT TESTED and the action is explicitly M3 scope.
+
+*Test evidence:* `DownloaderCoreTest` → "cancellation signal" and "guarded
+copy cancellation" (mid-copy cancel rolls back exactly once; an I/O failure
+rolls back exactly once; a failing rollback does not mask the original
+error).
+
+*Still NOT TESTED:* an end-to-end cancel on the device.
+
+### F6 — Abrupt kill can leave an `IS_PENDING` row — ACCEPTED, bounded
+
+*Review:* the `finally` block deletes the pending row on failure, but a
+`SIGKILL` skips `finally`; Android cleans stale pending rows eventually.
+
+*Fix/decision:* the exported surface was reviewed instead of widened: only
+`ShareTargetActivity` is exported (limited to `SEND`/`SEND_MULTIPLE` with
+`image/*`, `video/*`, `audio/*`); `ShareCacheProvider` is private and not
+exported; `DownloadService` is not exported. Every shared URI must be a
+`content://` URI with an image, video or audio MIME, at most 10 items and at
+most 512 MiB each, and the bytes are copied into private cache storage while
+the sender's grant is alive. A kill can still leave a pending row until the
+platform cleans it; that is a platform behaviour, documented here instead of
+claimed away.
+
+*Test evidence:* `validate_features.sh` fails closed on any forbidden
+Instagram/credential/broad-storage symbol in the Android shell and on a
+storage permission in the share patch; `test_downloader_isolation.sh` pins
+the protected digest and the exact path allowlist.
+
+*Still NOT TESTED:* the force-stop row behaviour on the device (check 6).
+
+### F7 — Low-severity notes — ADDRESSED
+
+* `http://` sources: unchanged and documented; the patched app blocks
+  cleartext, so an `http` CDN URL is a network failure. Instagram uses HTTPS.
+* History path field: unchanged, display-only.
+* Exported activity has no caller permission: the damage is bounded as
+  described in F6.
 * Rotating the invisible activity re-runs the import; the content hash makes
   the second enqueue a duplicate, so no double save, only wasted I/O.
-* A permanently failed task keeps its share cache copy for a manual retry that
-  M2 cannot trigger; the cache is reclaimed by the system eventually.
+* A permanently failed task keeps its share cache copy for a manual retry.
+  **Now bounded:** `ShareCacheJanitor` applies `CacheRetentionPolicy` at
+  downloader start and when the queue becomes idle — never while work is
+  active — so a live file is never a candidate. Files referenced by an active
+  task or by the pending ledger are protected whatever their age; everything
+  else is evicted past the grace window, oldest first, until the byte and
+  file-count budgets hold.
+
+*Test evidence:* `DownloaderCoreTest` → "cache retention policy" (an active
+task's file is never evicted; count budget evicts oldest first; byte budget
+evicts oldest until under the cap; invalid input rejected).
 
 ---
 
@@ -207,8 +304,37 @@ adb shell ls -l /sdcard/Pictures/HMXInsta
 adb logcat -d -v time | grep -Ei "HmxDownloader|ShareTarget|MediaStore|AndroidRuntime"
 ```
 
-**Current static expectation: FAIL (F1).** On a fresh install the notification
-is absent. Grant it manually to test the rendering path, and record both states:
+**Notification permission (F1) — run this first on a fresh install**
+
+The first share now raises the Android 13+ `POST_NOTIFICATIONS` dialog exactly
+once per install. Record which branch you take:
+
+```bash
+# before the first share: confirm the permission is not granted
+adb shell pm check-permission "$PKG" android.permission.POST_NOTIFICATIONS
+```
+
+* **Allow** → the share continues after the dialog, and notifications 4101 and
+  4102 appear. Verify:
+
+```bash
+adb shell dumpsys notification --noredact | grep -A4 "$PKG"
+```
+
+* **Deny** → the share still completes: the file is in `Pictures/HMXInsta`, the
+  toast is shown, the history entry is written, and no notification appears.
+
+Then share a second item and confirm the app does **not** ask again:
+
+```bash
+adb shell dumpsys package "$PKG" | grep -A2 "notification_permission_asked"
+# (prefs are only readable on a debuggable build)
+adb shell run-as "$PKG" cat shared_prefs/hmx_download_prefs.xml
+```
+
+Expected: `notification_permission_asked=true` and no second dialog.
+
+To re-test the granted path later, grant it manually:
 
 ```bash
 adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS
@@ -242,6 +368,19 @@ adb shell pidof "$PKG"
 adb logcat -d | grep -Ei "lowmemorykiller|am_kill|HmxDownloader"
 ```
 
+While the download runs, the `dataSync` foreground service must be visible and
+the process must survive the screen lock:
+
+```bash
+adb shell dumpsys activity services "$PKG" | grep -Ei "DownloadService|foreground"
+adb shell dumpsys notification --noredact | grep -A4 "hmx_downloads"
+adb shell dumpsys activity services "$PKG" | grep -i "isForeground"
+```
+
+Expected: `DownloadService` is listed as a foreground service while the queue
+has work, and it is gone a few seconds after the last item is published (the
+service stops itself when the queue is idle).
+
 ---
 
 ## 6. Check 3 — duplicate detection
@@ -268,11 +407,19 @@ no `?token=`, no `#fragment`, no `%3F` query remnants in the encoded URL.
 
 ## 7. Check 4 — cancellation
 
-**Blocked in M2 (F5).** There is no cancel button, notification action or
-settings entry. Do not fake a PASS with `force-stop`; that is process death,
+**Still NOT TESTED — no trigger in M2 (F5).** The M2 shell has no cancel
+button, notification action or settings entry; that surface belongs to the M3
+settings page. Do not fake a PASS with `force-stop`: that is process death,
 covered by check 7.
 
-When a cancel trigger exists (M2.1/M3), the procedure is:
+The code path itself changed and is unit-tested: the task's cancellation
+signal is now checked before the download, on every copy buffer, and inside
+the MediaStore publish, and a cancelled publish deletes the pending row (a
+cancel that lands after publication deletes the published row). Evidence:
+`test_downloader_logic.sh` → "cancellation signal" and "guarded copy
+cancellation".
+
+When a cancel trigger exists (M3), the procedure is:
 
 1. Start a ≥ 100 MiB video.
 2. Trigger cancel.
@@ -292,20 +439,32 @@ Until then record **NOT TESTED — no trigger**.
 
 ## 8. Check 5 — notifications denied
 
+The prompt now appears once per install, so this check must run **before** the
+first share, or the app has to be reinstalled to see the prompt again.
+
 ```bash
 adb shell pm revoke "$PKG" android.permission.POST_NOTIFICATIONS
 adb shell cmd appops set "$PKG" POST_NOTIFICATION ignore
 ```
 
 Share a photo. Expected: no notification, save still completes, toast still
-shown, history entry written. Restore with:
+shown, history entry written. Then share a second item and confirm **no second
+dialog** appears (the denial is remembered for the whole install):
+
+```bash
+adb shell dumpsys notification --noredact | grep -A4 "$PKG"   # expect nothing
+adb shell run-as "$PKG" cat shared_prefs/hmx_download_prefs.xml
+# expect notification_permission_asked=true
+```
+
+Restore with:
 
 ```bash
 adb shell cmd appops set "$PKG" POST_NOTIFICATION allow
+adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS
 ```
 
-On a fresh install this is the default state, so it runs before check 1 unless
-the permission is granted first.
+A reinstall clears the "asked" flag, so a fresh install asks once again.
 
 ---
 
@@ -346,7 +505,7 @@ adb shell am force-stop "$PKG"
 Expected: "Already saved", no new file — the DONE history re-seeds duplicate
 detection.
 
-**Process death during a download**
+**Process death during a download (F3)**
 
 ```bash
 # while a large video is downloading
@@ -357,17 +516,25 @@ adb shell am force-stop "$PKG"  # hard kill, mimics ColorOS reclaim
 Expected per current code (record actual):
 
 * no crash loop on next launch;
-* in-flight item is not resumed and has no `FAILED` history entry (F3);
-* leftover files to inspect and then clean:
+* the interrupted item is **not lost**: it is still in the pending-work ledger
+  and is replayed into the queue on the next start, so the download resumes
+  (the share cache copy is kept for exactly this reason);
+* after the resumed download finishes, the ledger entry is gone:
 
 ```bash
+adb shell run-as "$PKG" cat shared_prefs/hmx_download_pending.xml   # debuggable build
+# after completion: the ledger must be empty (no items)
 adb shell run-as "$PKG" ls -l cache        # debuggable build
 adb shell content query --uri content://media/external/video/media \
   --projection _id:_display_name:is_pending --where "is_pending=1"
 ```
 
-Do not mark this check PASS if the item silently disappears without a record;
-that is the F3 decision, not a device glitch.
+* the stale `.part` file of the killed attempt is reclaimed by the cache
+  janitor at the next downloader start or when the queue goes idle — it must
+  never be a file an active task still needs.
+
+Do not mark this check PASS if the item silently disappears without a record
+and without a replay; that would mean the ledger replay is broken.
 
 ---
 
@@ -380,9 +547,12 @@ adb shell cmd package query-activities --brief \
   -a android.intent.action.SEND -t image/jpeg
 adb shell cmd package query-activities --brief \
   -a android.intent.action.SEND_MULTIPLE -t video/mp4
+adb shell cmd package query-activities --brief \
+  -a android.intent.action.SEND -t audio/mpeg
 
 adb shell dumpsys package "$PKG" | sed -n '/ShareTargetActivity/,/^$/p'
 adb shell dumpsys package "$PKG" | sed -n '/ShareCacheProvider/,/^$/p'
+adb shell dumpsys package "$PKG" | sed -n '/DownloadService/,/^$/p'
 ```
 
 Expected:
@@ -390,14 +560,18 @@ Expected:
 * activity `…ShareTargetActivity`, `exported=true`, two intent filters, theme
   translucent, `excludeFromRecents=true`;
 * provider `…ShareCacheProvider`, `exported=false`, authority `<PKG>.hmxshare`;
-* the activity appears in the Instagram share sheet for a photo and a video.
+* service `…DownloadService`, `exported=false`, `foregroundServiceType=dataSync`;
+* the activity appears in the Instagram share sheet for a photo, a video and
+  an audio file.
 
 ```bash
-adb shell dumpsys package "$PKG" | grep -E "POST_NOTIFICATIONS|EXTERNAL_STORAGE"
+adb shell dumpsys package "$PKG" | grep -E "POST_NOTIFICATIONS|FOREGROUND_SERVICE|EXTERNAL_STORAGE"
 adb shell pm check-permission "$PKG" android.permission.POST_NOTIFICATIONS
 ```
 
-Expected: `POST_NOTIFICATIONS` declared, no `READ/WRITE/MANAGE_EXTERNAL_STORAGE`.
+Expected: `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE` and
+`FOREGROUND_SERVICE_DATA_SYNC` declared, no
+`READ/WRITE/MANAGE_EXTERNAL_STORAGE`.
 
 Instagram regression (manual, 5 minutes):
 
@@ -413,15 +587,42 @@ adb logcat -d -v time | grep -E "FATAL EXCEPTION|AndroidRuntime.*$PKG"
 
 ---
 
-## 12. Audio extraction (check requested separately)
+## 12. Audio handling (check requested separately)
 
-**Device result: NOT TESTED — unreachable in M2 (F2).**
+### 12.1 Direct audio share — reachable in M2 (F2)
 
-The share target maps `video/*` to `DownloadKind.VIDEO`, so
-`DownloadWorker` never takes the `plan.isAudio()` branch and `AudioExtractor` is
-never invoked. A device test cannot exercise it without a test-only entry point.
+**Device result: NOT TESTED.**
 
-If an audio action is added, the procedure is:
+An `audio/*` share is now mapped to `DownloadKind.AUDIO` and saved directly
+(no extraction involved). Procedure:
+
+1. Share an audio file (for example a voice note or an `.m4a`) to HMX Insta;
+2. expected: a row in the audio collection with `relative_path=Music/HMXInsta/`,
+   `is_pending=0`, and the same duration as the source;
+
+```bash
+adb shell content query --uri content://media/external/audio/media \
+  --projection _id:_display_name:relative_path:is_pending:mime_type \
+  --where "_display_name LIKE 'hmx%'"
+adb shell ls -l /sdcard/Music/HMXInsta
+```
+
+3. failure case: an `audio/*` item the provider cannot read → `storage` or
+   `unknown` in the history, no row, no crash.
+
+### 12.2 Video → audio extraction — implemented but unreachable in M2
+
+**Device result: NOT TESTED — no M2 entry point. Not claimed to work.**
+
+`AudioSourcePolicy` decides whether an `AUDIO` task may extract: only
+`video/mp4`, `video/3gpp`, `video/x-m4v` and `video/quicktime` are accepted;
+`video/webm`, `video/x-matroska`, `video/avi`, images and unknown types are
+refused with `unsupported`. `AudioExtractor` reports failure when the muxer
+wrote zero samples, so a silent file is never published.
+
+No M2 surface creates an `AUDIO` task from a video source — a video share
+stays a video — so this path cannot be triggered from the share sheet in M2.
+The procedure below applies once M3 adds an explicit "save as audio" action:
 
 1. enqueue a video as `AUDIO`;
 2. expected: `.m4a` in `Music/HMXInsta`, `relative_path=Music/HMXInsta/`,
@@ -436,7 +637,8 @@ ffprobe -v error -show_streams /tmp/opencode/audio-check.m4a
 ```
 
 4. failure case: a video with no audio track → `unsupported`, no row, no
-   `.m4a` left behind, no crash.
+   `.m4a` left behind, no crash;
+5. failure case: a `.webm` video → `unsupported` without attempting a mux.
 
 ---
 
@@ -452,7 +654,7 @@ ffprobe -v error -show_streams /tmp/opencode/audio-check.m4a
 | Check 1 photo | NOT TESTED |
 | Check 2 video | NOT TESTED |
 | Check 3 duplicate | NOT TESTED |
-| Check 4 cancel | NOT TESTED |
+| Check 4 cancel | NOT TESTED — no trigger (M3) |
 | Check 5 deny notifications | NOT TESTED |
 | Check 6 storage failure | NOT TESTED |
 | Check 7 restart / process death | NOT TESTED |
@@ -462,7 +664,13 @@ ffprobe -v error -show_streams /tmp/opencode/audio-check.m4a
 | MediaStore `IS_PENDING` audit | NOT TESTED |
 | History / duplicate audit | NOT TESTED |
 | Notification progress audit | NOT TESTED |
-| Audio extraction | NOT TESTED |
+| One-prompt-per-install (F1) | NOT TESTED |
+| Foreground service lifecycle (F3) | NOT TESTED |
+| Pending-work ledger replay (F3) | NOT TESTED |
+| Direct audio share (F2) | NOT TESTED |
+| Video → audio extraction (F2) | NOT TESTED — no M2 entry point |
+| ClipData-only sender (F4) | NOT TESTED |
+| Cache janitor bounds (F7) | NOT TESTED |
 
 A check becomes PASS only when the observed output is pasted next to it (or
 attached as a screenshot/log) and the tester signs the row.
@@ -471,13 +679,18 @@ attached as a screenshot/log) and the tester signs the row.
 
 ## 14. Exit criteria for leaving draft
 
-1. F1 resolved or the M2 exit criterion reworded (notification is optional).
-2. F2 resolved or audio extraction moved out of M2 scope.
-3. F3 decided: documented "keep the app foreground" limitation, or a
-   foreground service added and re-reviewed for Android 15 service types.
-4. F4 verified against the actual Instagram share sheet (ClipData fallback
-   added only if the share sheet sends no `EXTRA_STREAM`).
-5. F5 gives cancellation a trigger and checks the flag during publish — or
-   check 4 is removed from the M2 gate and moved to M3.
+1. F1 — implemented and unit-tested; the device rows (one prompt per install,
+   allow path, deny path) have evidence.
+2. F2 — implemented and unit-tested; the direct-audio row has device evidence.
+   Video→audio extraction stays explicitly out of the M2 claim set until M3
+   adds an entry point.
+3. F3 — implemented (foreground service + pending-work ledger); the device
+   rows for the service lifecycle and the ledger replay have evidence, and the
+   ColorOS / Android 15 limits stay documented.
+4. F4 — implemented and unit-tested; the device row for a ClipData-only sender
+   (or the actual Instagram share sheet) has evidence.
+5. F5 — the code path is implemented and unit-tested; check 4 stays
+   **NOT TESTED — no trigger** until M3 ships the cancel action. The M2 exit
+   criterion is not blocked by it.
 6. Checks 1-8 above have device evidence, with all eight PASS.
 7. CI stays green after any of the above changes.
