@@ -22,12 +22,12 @@ BASE="${HMX_DOWNLOADER_BASE:-c6ab02441fe7c7172ade483b37d2c274bd83439c}"
 # content of every protected file, build.sh and apk.yml included, so any later
 # change to them still fails this check.
 #
-# Computed from the reviewed CI baseline plus the reviewed M2 files over the
+# Computed from the reviewed CI baseline plus the reviewed M2/M3 files over the
 # protected paths listed below. The share-target patch is deliberately
-# included. The digest was last re-pinned when the CI baseline moved: the
-# delta was attributed to build.sh and apk.yml alone, with every other
-# protected file byte-identical to the previous pin.
-PINNED_PROTECTED_DIGEST="7d414b0ab39cd0caa4d2789a4bc62afc5bf32bfa7f5b84bc78e4cc2f735faeba"
+# included. The digest was last re-pinned for the M3 screen: the delta was
+# attributed to the downloader patch alone (it declares the new activity),
+# with every other protected file byte-identical to the previous pin.
+PINNED_PROTECTED_DIGEST="2551414d2492fa6feb4fdbfba84a730509890bdd8afb9b9f914c798f38f26a34"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
@@ -148,6 +148,7 @@ while IFS= read -r path; do
     docs/HMX_INSTA_M1_DOWNLOADER_CORE.md) ;;
     docs/HMX_INSTA_M2_ANDROID_SHELL.md) ;;
     docs/HMX_INSTA_M2_DEVICE_CHECKLIST.md) ;;
+    docs/HMX_INSTA_M3_DOWNLOADER_UI.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;

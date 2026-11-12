@@ -7,6 +7,8 @@ import org.w3c.dom.Element
 
 private const val ACTIVITY =
     "com.feurstagram.extension.downloader.android.ShareTargetActivity"
+private const val DOWNLOADER_ACTIVITY =
+    "com.feurstagram.extension.downloader.android.DownloaderActivity"
 private const val PROVIDER =
     "com.feurstagram.extension.downloader.android.ShareCacheProvider"
 private const val SERVICE =
@@ -24,14 +26,19 @@ private val REQUESTED_PERMISSIONS = listOf(
 )
 
 /**
- * Adds the invisible system share target used by the downloader.
+ * Adds the invisible system share target and the downloader screen used by
+ * the downloader.
  *
- * <p>It is default-off on purpose: unlike the M0 patches, this one exposes an
- * exported component. The component is limited to image, video and audio
+ * <p>It is default-off on purpose: unlike the M0 patches, this one exposes
+ * exported components. The share activity is limited to image, video and audio
  * {@code SEND} and {@code SEND_MULTIPLE} intents, and it validates every
  * incoming URI in {@code ShareIntentParser} before copying it. The provider
  * that hands the copied stream to the worker is private, and the
  * {@code DownloadService} that keeps the queue alive is not exported.
+ *
+ * <p>The second exported component is the downloader screen, a launcher
+ * activity of its own that shows the queue, the progress and the history
+ * without touching the Instagram UI.
  *
  * <p>Permissions: {@code POST_NOTIFICATIONS} for the Android 13 drawer,
  * {@code FOREGROUND_SERVICE} and {@code FOREGROUND_SERVICE_DATA_SYNC} for the
@@ -80,6 +87,9 @@ val downloaderShareTargetPatch = resourcePatch(
             if (activities.none { it.getAttribute("android:name") == ACTIVITY }) {
                 application.appendChild(buildActivity(document))
             }
+            if (activities.none { it.getAttribute("android:name") == DOWNLOADER_ACTIVITY }) {
+                application.appendChild(buildDownloaderActivity(document))
+            }
 
             val providers = application
                 .getElementsByTagName("provider")
@@ -108,6 +118,27 @@ private fun buildActivity(document: org.w3c.dom.Document): Element {
     activity.setAttribute("android:theme", "@android:style/Theme.Translucent.NoTitleBar")
     activity.appendChild(buildFilter(document, "android.intent.action.SEND"))
     activity.appendChild(buildFilter(document, "android.intent.action.SEND_MULTIPLE"))
+    return activity
+}
+
+private fun buildDownloaderActivity(document: org.w3c.dom.Document): Element {
+    // The downloader screen is a launcher activity of its own: it shows the
+    // queue and the history without touching the Instagram UI. M4 can add
+    // in-app entry points later without changing this declaration.
+    val activity = document.createElement("activity")
+    activity.setAttribute("android:name", DOWNLOADER_ACTIVITY)
+    activity.setAttribute("android:exported", "true")
+    activity.setAttribute("android:label", "HMX Insta Downloader")
+    activity.setAttribute("android:theme", "@android:style/Theme.DeviceDefault")
+    activity.setAttribute("android:launchMode", "singleTop")
+    val filter = document.createElement("intent-filter")
+    val action = document.createElement("action")
+    action.setAttribute("android:name", "android.intent.action.MAIN")
+    filter.appendChild(action)
+    val category = document.createElement("category")
+    category.setAttribute("android:name", "android.intent.category.LAUNCHER")
+    filter.appendChild(category)
+    activity.appendChild(filter)
     return activity
 }
 

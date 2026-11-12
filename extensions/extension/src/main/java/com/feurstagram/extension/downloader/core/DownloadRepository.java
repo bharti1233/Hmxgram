@@ -30,6 +30,17 @@ public interface DownloadRepository {
     /** Whether a successfully completed task with this duplicate key exists. */
     boolean contains(String duplicateKey);
 
+    /**
+     * Removes one remembered entry.
+     *
+     * <p>The downloader screen uses this for the "delete" action: the entry
+     * disappears from the history and from duplicate detection, but the file
+     * that was already written to the gallery is not touched.
+     *
+     * @return whether an entry was removed
+     */
+    boolean delete(String taskId);
+
     /** Number of remembered entries. */
     int size();
 
