@@ -6,16 +6,49 @@ All notable changes to Feurstagram should be documented in this file.
 
 ### Added
 - **Downloader share target (M2, draft, not merged into `main`).** An invisible
-  share activity saves shared photos and videos to `Pictures/HMXInsta` and
-  `Movies/HMXInsta`, with a bounded worker queue, MediaStore `IS_PENDING`
-  publishing, preferences-backed history and duplicate detection, audio
-  extraction and notifications. The share-target patch is default-off; the
-  Instagram integration, login, auth, session and feed code are unchanged.
+  share activity saves shared photos, videos and audio to `Pictures/HMXInsta`,
+  `Movies/HMXInsta` and `Music/HMXInsta`, with a bounded worker queue, MediaStore
+  `IS_PENDING` publishing, preferences-backed history and duplicate detection,
+  notifications, a `dataSync` foreground download service with pending-work
+  replay after a process kill, and a bounded cache janitor. The share-target
+  patch is default-off; the Instagram integration, login, auth, session and feed
+  code are unchanged.
 - **Downloader core (M1).** Pure-Java media models, bounded download queue with
   retry and duplicate policy, in-memory history and storage plans under
   `extensions/.../downloader/core`, with plain-JDK unit tests and static
   isolation gates. `content://` share sources and the versioned history codec
   landed with M2.
+
+### Fixed
+- **M2 audit findings F1-F7 (draft branch, not merged).**
+  - *F1:* the Android 13+ `POST_NOTIFICATIONS` permission is now requested once
+    per install from the share activity; a denial is remembered and respected,
+    and the save completes either way.
+  - *F2:* an `audio/*` share is saved directly as audio, and the extraction
+    decision moved to `AudioSourcePolicy` (direct audio, extraction only from
+    MP4-family containers, an honest `unsupported` refusal for everything
+    else). An empty mux output is reported as a failure instead of publishing
+    a silent file. Video-to-audio extraction still has no M2 entry point and is
+    not claimed to work.
+  - *F3:* the queue runs under a declared, non-exported `dataSync` foreground
+    service, and every accepted item is written to a durable pending-work
+    ledger that is replayed on the next start, so a killed process does not lose
+    a queued download. The ColorOS and Android 15 limits are documented.
+  - *F4:* shared streams are now collected from `EXTRA_STREAM` **and**
+    `ClipData`, merged and de-duplicated, so a sender that only fills the
+    ClipData is no longer rejected.
+  - *F5:* cancellation is checked through the whole lifecycle, including inside
+    the MediaStore publish; a cancelled publish deletes the pending row and a
+    late cancellation deletes the published row, so no cancelled task leaves a
+    finished file behind.
+  - *F6:* the exported surface was narrowed — only the share activity is
+    exported, the provider and the download service are not.
+  - *F7:* the share cache and interrupted temp files are now reclaimed by a
+    bounded janitor that runs only when no task is active, so an active task's
+    files are never deleted.
+
+  The plain-JDK core test suite grew to 33 groups covering the new policies;
+  the device checklist still records every device row as NOT TESTED.
 
 ## v454-0-0-54-77
 
