@@ -12,7 +12,7 @@ import android.view.animation.PathInterpolator;
 import android.widget.CompoundButton;
 
 /** Resource-free Material 3 switch, using the shared monochrome settings palette. */
-final class ExpressiveSwitch extends CompoundButton {
+public final class ExpressiveSwitch extends CompoundButton {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF track = new RectF();
     private final Path check = new Path();
@@ -21,7 +21,7 @@ final class ExpressiveSwitch extends CompoundButton {
     private ValueAnimator movement;
     private ValueAnimator pressure;
 
-    ExpressiveSwitch(Context context) {
+    public ExpressiveSwitch(Context context) {
         super(context);
         setButtonDrawable(null);
         setBackground(null);

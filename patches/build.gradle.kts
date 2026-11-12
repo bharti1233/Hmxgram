@@ -2,8 +2,8 @@ group = "com.feurstagram"
 
 patches {
     about {
-        name = "Feurstagram Patches"
-        description = "Distraction-free Instagram: blocks the feed, stories, explore, reels, ads and suggestions, with a runtime toggle and an optional permanent lock."
+        name = "HMX Insta Patches"
+        description = "HMX Insta: a distraction-free Instagram with a downloader and a ghost mode, with runtime toggles and an optional permanent lock."
         source = "https://github.com/bharti1233/Hmxgram.git"
         author = "Jean Herail and HMX Insta+ contributors"
         contact = "na"

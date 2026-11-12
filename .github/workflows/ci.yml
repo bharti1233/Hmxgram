@@ -44,6 +44,15 @@ jobs:
       - name: Validate HMX Insta branding
         run: bash scripts/ci/validate_branding.sh
 
+      - name: Test the downloader logic
+        run: bash scripts/ci/test_downloader_logic.sh
+
+      - name: Test the ghost-mode rules
+        run: bash scripts/ci/test_ghost_mode.sh
+
+      - name: Validate the downloader and ghost-mode safeguards
+        run: bash scripts/ci/validate_features.sh
+
   bundle:
     name: Build patch bundle (.mpp)
     runs-on: ubuntu-latest
