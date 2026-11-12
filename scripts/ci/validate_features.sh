@@ -33,6 +33,7 @@ EXPECTED_PATCH_SOURCES=(
   patches/src/main/kotlin/com/feurstagram/patches/display/SetColorModePatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderMediaObserverPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt
+  patches/src/main/kotlin/com/feurstagram/patches/ghost/GhostModePatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/FeedItemFilterPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/LimitFeedToFollowingPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/NetworkBlockPatch.kt
