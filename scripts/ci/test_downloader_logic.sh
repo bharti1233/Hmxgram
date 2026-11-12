@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# M1 downloader-core unit tests. Plain JDK only: no Android SDK, no Gradle, no
+# Downloader-core unit tests. Plain JDK only: no Android SDK, no Gradle, no
 # device, no network. The core must compile with --release 11 and pass every
-# assertion in DownloaderCoreTest.
+# assertion in DownloaderCoreTest and DownloaderUiTest.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -35,6 +35,7 @@ javac --release 11 -encoding UTF-8 -Xlint:all -Werror \
 echo
 echo "== Running downloader core tests =="
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderCoreTest
+java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderUiTest
 
 echo
 echo "Downloader core logic tests passed."

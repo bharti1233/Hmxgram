@@ -5,6 +5,14 @@ All notable changes to Feurstagram should be documented in this file.
 ## Unreleased
 
 ### Added
+- **Downloader screen (M3, draft, not merged).** A dedicated "HMX Insta
+  Downloader" screen shows the real queue and history of the download engine:
+  queued, running, finished, failed and cancelled items, per-task progress,
+  and the Retry, Cancel and Delete actions the engine allows. The screen is a
+  view over the existing core — it holds no state of its own — and it is
+  declared by the same default-off downloader patch as the share target, so
+  the whole feature stays behind one review gate. No Instagram login, session,
+  feed, story, reel, profile or navigation code is touched.
 - **Downloader share target (M2, draft, not merged into `main`).** An invisible
   share activity saves shared photos, videos and audio to `Pictures/HMXInsta`,
   `Movies/HMXInsta` and `Music/HMXInsta`, with a bounded worker queue, MediaStore

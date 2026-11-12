@@ -88,6 +88,27 @@ public final class PreferencesDownloadRepository implements DownloadRepository {
     }
 
     @Override
+    public synchronized boolean delete(String taskId) {
+        if (taskId == null || taskId.trim().isEmpty()) {
+            throw new IllegalArgumentException("taskId must not be blank");
+        }
+        List<DownloadTask> current = load();
+        List<DownloadTask> next = new ArrayList<DownloadTask>(current.size());
+        boolean changed = false;
+        for (DownloadTask existing : current) {
+            if (existing.id().equals(taskId)) {
+                changed = true;
+            } else {
+                next.add(existing);
+            }
+        }
+        if (changed) {
+            write(next);
+        }
+        return changed;
+    }
+
+    @Override
     public synchronized int size() {
         return load().size();
     }

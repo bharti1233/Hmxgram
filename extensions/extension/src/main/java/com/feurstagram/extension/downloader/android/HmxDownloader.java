@@ -11,9 +11,11 @@ import com.feurstagram.extension.downloader.core.DownloadRepository;
 import com.feurstagram.extension.downloader.core.DownloadResult;
 import com.feurstagram.extension.downloader.core.DownloadState;
 import com.feurstagram.extension.downloader.core.DownloadTask;
+import com.feurstagram.extension.downloader.core.DownloaderRow;
 import com.feurstagram.extension.downloader.core.MediaItem;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +49,16 @@ public final class HmxDownloader {
 
     private static volatile HmxDownloader instance;
 
+    /**
+     * Notified whenever the state the screen shows may have changed.
+     *
+     * <p>The callback runs on whichever thread caused the change, so a UI
+     * implementation must hop to its own thread.
+     */
+    public interface Listener {
+        void onDownloaderChanged();
+    }
+
     private final Context context;
     private final DownloadQueue queue;
     private final DownloadRepository repository;
@@ -56,12 +68,27 @@ public final class HmxDownloader {
     private final Object dispatchLock = new Object();
     private final Map<String, CancellationSignal> cancellations =
             new ConcurrentHashMap<String, CancellationSignal>();
+    private final Map<String, Progress> progress =
+            new ConcurrentHashMap<String, Progress>();
 
     private final AtomicInteger sessionSaved = new AtomicInteger();
     private final AtomicInteger sessionFailed = new AtomicInteger();
     private volatile boolean started;
     private volatile boolean shutdown;
     private volatile Runnable idleListener;
+    private volatile Listener listener;
+
+    /** The bytes a worker reported for one running task. */
+    private static final class Progress {
+
+        final long bytes;
+        final long total;
+
+        Progress(long bytes, long total) {
+            this.bytes = bytes;
+            this.total = total;
+        }
+    }
 
     private HmxDownloader(Context context) {
         this.context = context.getApplicationContext();
@@ -183,20 +210,151 @@ public final class HmxDownloader {
         return active;
     }
 
-    /** Manually retries a failed task when the queue policy allows it. */
+    /**
+     * Manually retries a failed task when the queue policy allows it.
+     *
+     * <p>Two cases are covered. A task that is still known to this process is
+     * re-queued in place. A task that only exists in the persisted history
+     * (the process was restarted after the failure) is enqueued again as a
+     * new task, because the queue no longer holds it. In both cases the item
+     * is written to the pending-work ledger before it is dispatched.
+     *
+     * @return whether the task was re-queued
+     */
     public boolean retry(String taskId) {
-        if (taskId == null) {
+        if (taskId == null || taskId.trim().isEmpty()) {
             return false;
         }
         boolean requeued;
+        MediaItem item = null;
         synchronized (dispatchLock) {
             requeued = queue.retry(taskId);
+            if (requeued) {
+                DownloadTask task = queue.task(taskId);
+                item = task == null ? null : task.item();
+            } else {
+                DownloadTask remembered = findRemembered(taskId);
+                if (remembered == null || !remembered.canRetry()) {
+                    return false;
+                }
+                item = remembered.item();
+                DownloadQueue.EnqueueResult result;
+                try {
+                    result = queue.enqueue(item);
+                } catch (IllegalArgumentException e) {
+                    // The item is no longer downloadable (an expired link, a
+                    // container that must be expanded first): the screen shows
+                    // the failure instead of silently dropping the request.
+                    Log.w(TAG, "cannot retry " + taskId, e);
+                    return false;
+                }
+                requeued = result.isAdded();
+            }
+        }
+        if (requeued && item != null) {
+            // A failed task was removed from the ledger when it reached its
+            // terminal state, so a retry has to be written back before it is
+            // dispatched: a killed process must not lose it.
+            try {
+                pendingStore.add(item);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "could not persist pending work", e);
+            }
         }
         if (requeued) {
             dispatch();
             DownloadService.ensureRunning(context);
         }
+        notifyChanged();
         return requeued;
+    }
+
+    /**
+     * Removes one entry from the persisted history.
+     *
+     * <p>The downloaded file is not deleted: the entry only disappears from
+     * the list and from duplicate detection. An active task cannot be
+     * removed; cancel it first.
+     *
+     * @return whether an entry was removed
+     */
+    public boolean delete(String taskId) {
+        if (taskId == null || taskId.trim().isEmpty()) {
+            return false;
+        }
+        boolean removed;
+        try {
+            removed = repository.delete(taskId);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not delete the history entry", e);
+            return false;
+        }
+        if (removed) {
+            notifyChanged();
+        }
+        return removed;
+    }
+
+    /**
+     * The state the downloader screen shows: the active tasks first, then the
+     * remembered history, newest first.
+     */
+    public List<DownloaderRow> rows() {
+        start();
+        List<DownloaderRow> rows = new ArrayList<DownloaderRow>();
+        Set<String> seen = new HashSet<String>();
+        List<DownloadTask> active = new ArrayList<DownloadTask>();
+        for (DownloadTask task : queue.tasks()) {
+            if (task.state().isActive()) {
+                active.add(task);
+            }
+        }
+        for (DownloadTask task : active) {
+            seen.add(task.id());
+            rows.add(rowFor(task));
+        }
+        for (DownloadTask task : repository.history()) {
+            if (seen.add(task.id())) {
+                rows.add(rowFor(task));
+            }
+        }
+        return Collections.unmodifiableList(rows);
+    }
+
+    /**
+     * Registers the screen's change listener. Only one listener is kept: the
+     * downloader screen is the only consumer.
+     */
+    public void setListener(Listener listener) {
+        this.listener = listener;
+    }
+
+    private DownloaderRow rowFor(DownloadTask task) {
+        Progress current = progress.get(task.id());
+        long bytes = current == null ? 0L : current.bytes;
+        long total = current == null ? DownloaderRow.UNKNOWN_BYTES : current.total;
+        return DownloaderRow.from(task, bytes, total);
+    }
+
+    private DownloadTask findRemembered(String taskId) {
+        for (DownloadTask task : repository.history()) {
+            if (task.id().equals(taskId)) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+    private void notifyChanged() {
+        Listener current = listener;
+        if (current == null) {
+            return;
+        }
+        try {
+            current.onDownloaderChanged();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "downloader listener failed", e);
+        }
     }
 
     /** Persisted history, newest first. */
@@ -209,6 +367,17 @@ public final class HmxDownloader {
         repository.clear();
         pendingStore.clear();
         queue.clear();
+    }
+
+    /**
+     * Removes only the finished entries.
+     *
+     * <p>The downloader screen offers this as "clear finished entries": the
+     * running and waiting tasks stay untouched, and so does the pending-work
+     * ledger.
+     */
+    public void clearFinished() {
+        repository.clear();
     }
 
     /** Whether nothing is waiting and nothing is running. */
@@ -291,6 +460,9 @@ public final class HmxDownloader {
         for (DownloadTask task : rejected) {
             recordTerminal(task.id());
         }
+        if (!rejected.isEmpty()) {
+            notifyChanged();
+        }
     }
 
     private void runTask(DownloadTask task, CancellationSignal cancelled) {
@@ -300,6 +472,9 @@ public final class HmxDownloader {
                     new DownloadWorker.ProgressListener() {
                         @Override
                         public void onProgress(long bytesRead, long totalBytes) {
+                            // The per-task counters drive the downloader
+                            // screen; the notification only shows the count.
+                            progress.put(task.id(), new Progress(bytesRead, totalBytes));
                             notifier.notifyProgress(
                                     queue.runningCount() + queue.waitingCount());
                         }
@@ -328,8 +503,11 @@ public final class HmxDownloader {
             }
             cancellations.remove(task.id());
         }
+        // The task reached a terminal state: its live counters are stale.
+        progress.remove(task.id());
         recordTerminal(task.id());
         notifier.notifyProgress(queue.runningCount() + queue.waitingCount());
+        notifyChanged();
         dispatch();
     }
 
@@ -377,6 +555,7 @@ public final class HmxDownloader {
                 }
             }
         }
+        notifyChanged();
     }
 
     /** Content URIs the active queue still reads from the share cache. */
