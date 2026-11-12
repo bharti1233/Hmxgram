@@ -4,7 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Stacked milestone PRs target the v2 integration branch, not main, so
+    # they must still get the full validation and bundle jobs.
+    branches: [main, feature/hmx-downloader-ghost-mode-v2]
   workflow_dispatch:
 
 permissions:
@@ -23,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # test_m1_isolation.sh diffs against the M0 milestone commit b9326c0.
+          # test_downloader_isolation.sh diffs against the M1 integration commit.
           fetch-depth: 0
 
       - name: Set up JDK 17
@@ -59,8 +61,8 @@ jobs:
       - name: Validate feature isolation
         run: bash scripts/ci/validate_features.sh
 
-      - name: Test M1 baseline isolation
-        run: bash scripts/ci/test_m1_isolation.sh
+      - name: Test downloader baseline isolation
+        run: bash scripts/ci/test_downloader_isolation.sh
 
       - name: Validate HMX Insta branding
         run: bash scripts/ci/validate_branding.sh

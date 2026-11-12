@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# M1 regression gate: prove the protected M0 baseline is unchanged and that
-# the milestone is isolated to the downloader core, its tests and its docs.
+# Downloader regression gate: prove the protected M0 baseline is unchanged and
+# that the downloader milestones stay inside their exact allowlist.
 #
 # Two independent checks:
 #   1. a pinned SHA-256 over every protected source/configuration file;
-#   2. a diff against the M0 milestone commit (b9326c0) limited to the exact
-#      M1 allowlist.
+#   2. a diff against the M1 integration commit (ba72c21) limited to the M2
+#      allowlist, plus the M1 files that were already reviewed.
 #
 # The APK-level protected-method verifier still runs in the gated build; this
 # script is the offline, no-build regression guard that runs on every CI run.
@@ -14,19 +14,21 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-BASE="${HMX_M1_BASE:-b9326c053b22245bf7d19a8ec63c5a150075dc4c}"
-# Computed from the M0 milestone commit over the protected paths listed below.
-PINNED_PROTECTED_DIGEST="8e6a6c5d306e62f2f11599673d54477e217cbc75a9c424692dcc4c6dd884ddde"
+BASE="${HMX_DOWNLOADER_BASE:-ba72c21d0c1aafc6aa4ec48283f9a75be26ca9d0}"
+# Computed from the M1 integration commit plus the reviewed M2 files over the
+# protected paths listed below. The share-target patch is deliberately included.
+PINNED_PROTECTED_DIGEST="a50f758e3b99290969bd3cccce58978d4602909463948d5474a54bb5e8671aeb"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
+ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
 fail=0
 note() { printf '%s\n' "$*"; }
 bad() { printf 'ERROR: %s\n' "$*" >&2; fail=1; }
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/hmx-m1-isolation.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/hmx-downloader-isolation.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-note "== M1 base commit =="
+note "== Downloader base commit =="
 if git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
   note "ok: base $BASE is available"
 else
@@ -55,12 +57,12 @@ actual_digest="$(
   } | sha256sum | cut -d' ' -f1
 )"
 if [ "$actual_digest" = "$PINNED_PROTECTED_DIGEST" ]; then
-  note "ok: protected files match the pinned M0 digest"
+  note "ok: protected files match the pinned downloader baseline digest"
 else
   bad "protected files changed (expected $PINNED_PROTECTED_DIGEST, got $actual_digest)"
 fi
 
-note "== Protected paths unchanged since the M0 milestone commit =="
+note "== Protected paths unchanged since the M1 integration commit =="
 protected_changed="$(git diff --name-only "$BASE" -- \
   patches/src \
   extensions/extension/src/main/java/com/feurstagram/extension \
@@ -71,7 +73,8 @@ protected_changed="$(git diff --name-only "$BASE" -- \
   scripts/ci/test_protected_methods.sh \
   build.sh \
   .github/workflows/apk.yml \
-  | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/downloader/' || true)"
+  | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/downloader/' \
+  | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/downloader/' || true)"
 if [ -z "$protected_changed" ]; then
   note "ok: no protected path changed"
 else
@@ -114,7 +117,7 @@ else
   bad "protected_methods.json no longer matches the M0 baseline"
 fi
 
-note "== M1 changes are confined to the allowlist =="
+note "== Downloader changes are confined to the allowlist =="
 {
   git diff --name-only "$BASE" -- .
   git ls-files --others --exclude-standard
@@ -123,21 +126,25 @@ while IFS= read -r path; do
   [ -z "$path" ] && continue
   case "$path" in
     extensions/extension/src/main/java/com/feurstagram/extension/downloader/core/*) ;;
+    extensions/extension/src/main/java/com/feurstagram/extension/downloader/android/*) ;;
     extensions/extension/src/test/java/com/feurstagram/extension/downloader/core/*) ;;
+    patches/src/main/kotlin/com/feurstagram/patches/downloader/*) ;;
     scripts/ci/test_downloader_logic.sh) ;;
-    scripts/ci/validate_features.sh) ;;
+    scripts/ci/test_downloader_isolation.sh) ;;
     scripts/ci/test_m1_isolation.sh) ;;
+    scripts/ci/validate_features.sh) ;;
     scripts/ci/validate_repo.sh) ;;
     .github/workflows/ci.yml) ;;
     docs/HMX_INSTA_M1_DOWNLOADER_CORE.md) ;;
+    docs/HMX_INSTA_M2_ANDROID_SHELL.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;
-    *) bad "M1 changed a path outside the allowlist: $path" ;;
+    *) bad "downloader changed a path outside the allowlist: $path" ;;
   esac
 done < "$WORK/changed"
 if [ "$fail" -eq 0 ]; then
-  note "ok: every changed path belongs to the M1 milestone"
+  note "ok: every changed path belongs to the downloader milestones"
 fi
 
 note "== Core has no Android imports =="
@@ -149,7 +156,7 @@ else
 fi
 
 if [ "$fail" -ne 0 ]; then
-  printf '\nM1 isolation check failed.\n' >&2
+  printf '\nDownloader isolation check failed.\n' >&2
   exit 1
 fi
-printf '\nM1 isolation check passed.\n'
+printf '\nDownloader isolation check passed.\n'

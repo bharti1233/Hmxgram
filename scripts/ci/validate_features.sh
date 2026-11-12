@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 #
-# Static feature gates for the M1 downloader core.
+# Static feature gates for the downloader core and its M2 Android shell.
 #
 # Enforces the rules from docs/HMX_INSTA_NEXT_PHASE_PLAN.md section 4.1:
 #   * the core imports only JDK classes (no Android, no AndroidX);
-#   * the downloader never reads cookies/auth headers and never requests
-#     storage permissions;
-#   * no new patch and no existing feature source references the core;
-#   * the expected patch inventory has not grown.
+#   * the Android shell imports platform classes but never Instagram internals,
+#     cookies, authorization headers or broad storage permissions;
+#   * the share target is the only downloader component declared in a manifest,
+#     and it is added by a default-off patch;
+#   * the expected patch inventory has not grown implicitly.
 #
 # No build, no Android SDK, no device, no network.
 set -euo pipefail
@@ -16,16 +17,19 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 DOWNLOADER_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader"
+ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
+SHARE_PATCH="patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt"
 GHOST_DIR="extensions/extension/src/main/java/com/feurstagram/extension/ghost"
 MANIFEST="extensions/extension/src/main/AndroidManifest.xml"
 
-# The M0 baseline patch inventory. A new patch must be added here explicitly,
+# The reviewed patch inventory. A new patch must be added here explicitly,
 # together with its own default-off gate and review.
 EXPECTED_PATCH_SOURCES=(
   patches/src/main/kotlin/com/feurstagram/patches/branding/HmxInstaAppNamePatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/clone/ClonePatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/debug/DebugBridgePatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/display/SetColorModePatch.kt
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/FeedItemFilterPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/LimitFeedToFollowingPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/NetworkBlockPatch.kt
@@ -91,8 +95,71 @@ else
   note "ok: downloader has no cookie, auth or storage-permission symbols"
 fi
 
+note "== Android shell is present =="
+if [ -d "$ANDROID_DIR" ]; then
+  for file in \
+    HmxDownloader.java \
+    DownloadWorker.java \
+    MediaStoreWriter.java \
+    AudioExtractor.java \
+    PreferencesDownloadRepository.java \
+    DownloadNotifier.java \
+    ShareTargetActivity.java \
+    ShareIntentParser.java \
+    ShareImporter.java \
+    ShareCacheProvider.java
+  do
+    if [ -f "$ANDROID_DIR/$file" ]; then
+      note "ok: downloader/android/$file"
+    else
+      bad "missing Android shell file: downloader/android/$file"
+    fi
+  done
+else
+  bad "missing downloader Android shell directory: $ANDROID_DIR"
+fi
+
+note "== Android shell has no Instagram, credential or broad-storage symbol =="
+forbidden_android='com\.instagram|CookieManager|getCookie|Authorization|PackageInstaller|WRITE_EXTERNAL_STORAGE|READ_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE|android\.accounts|AccountManager'
+if [ -d "$ANDROID_DIR" ] && grep -RInE "$forbidden_android" "$ANDROID_DIR" --include='*.java' >/dev/null 2>&1; then
+  bad "Android shell contains a forbidden Instagram, credential or storage symbol"
+  grep -RInE "$forbidden_android" "$ANDROID_DIR" --include='*.java' >&2 || true
+else
+  note "ok: Android shell touches no Instagram, cookie, account or broad-storage API"
+fi
+
+note "== Share target patch is present and default-off =="
+if [ -f "$SHARE_PATCH" ]; then
+  if grep -qE 'default[[:space:]]*=[[:space:]]*false' "$SHARE_PATCH"; then
+    note "ok: share target patch is default-off"
+  else
+    bad "share target patch must be default-off"
+  fi
+  for needle in \
+    'ShareTargetActivity' \
+    'android.intent.action.SEND' \
+    'android.intent.action.SEND_MULTIPLE' \
+    'ShareCacheProvider' \
+    'android.permission.POST_NOTIFICATIONS'
+  do
+    if grep -qF "$needle" "$SHARE_PATCH"; then
+      note "ok: share target patch contains $needle"
+    else
+      bad "share target patch is missing $needle"
+    fi
+  done
+  forbidden_manifest='WRITE_EXTERNAL_STORAGE|READ_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE'
+  if grep -qE "$forbidden_manifest" "$SHARE_PATCH"; then
+    bad "share target patch asks for a broad storage permission"
+  else
+    note "ok: share target patch asks for no storage permission"
+  fi
+else
+  bad "missing share target patch: $SHARE_PATCH"
+fi
+
 note "== Existing features do not reference the downloader core =="
-core_refs="$(grep -RInE 'com\.feurstagram\.extension\.downloader|downloader/core' \
+core_refs="$(grep -RInE 'com\.feurstagram\.extension\.downloader\.core|downloader/core' \
   extensions/extension/src/main/java/com/feurstagram/extension \
   patches/src \
   --include='*.java' --include='*.kt' \
@@ -111,12 +178,12 @@ else
   note "ok: manifest contains no downloader component"
 fi
 
-note "== Patch inventory is exactly the M0 baseline =="
+note "== Patch inventory is exactly the reviewed set =="
 mapfile -t actual_patches < <(git ls-files -- 'patches/src/main/kotlin/**/*.kt' | LC_ALL=C sort)
 actual_list="$(printf '%s\n' "${actual_patches[@]}")"
 expected_list="$(printf '%s\n' "${EXPECTED_PATCH_SOURCES[@]}")"
 if [ "$actual_list" = "$expected_list" ]; then
-  note "ok: ${#actual_patches[@]} patch sources, unchanged inventory"
+  note "ok: ${#actual_patches[@]} patch sources, reviewed inventory"
 else
   bad "patch inventory changed; add the new patch to EXPECTED_PATCH_SOURCES intentionally"
   diff <(printf '%s\n' "$expected_list") <(printf '%s\n' "$actual_list") >&2 || true
