@@ -1590,6 +1590,22 @@ public final class DownloaderCoreTest {
                         250L, 32),
                 "byte budget evicts oldest until under the cap");
 
+        // The budget wins over the age: a file that is still inside the grace
+        // window is evicted when the cache is over budget. This is why the
+        // temporary download files of a running task are only swept when no
+        // task is active.
+        List<CacheRetentionPolicy.Entry> freshHeavy =
+                new ArrayList<CacheRetentionPolicy.Entry>();
+        freshHeavy.add(new CacheRetentionPolicy.Entry("x", 100L, now, false));
+        freshHeavy.add(new CacheRetentionPolicy.Entry("y", 100L, now, false));
+        eq(Arrays.asList("x"),
+                CacheRetentionPolicy.selectEvictions(freshHeavy, now, 3_600_000L,
+                        150L, 32),
+                "the byte budget evicts a fresh file when the cache is over budget");
+        eq(0, CacheRetentionPolicy.selectEvictions(freshHeavy, now, 3_600_000L,
+                        1_000_000L, 32).size(),
+                "a fresh file survives when the cache is within budget");
+
         // Defaults compile and behave: nothing inside grace is evicted.
         eq(0, CacheRetentionPolicy.selectEvictions(
                 Arrays.asList(fresh), now).size(),

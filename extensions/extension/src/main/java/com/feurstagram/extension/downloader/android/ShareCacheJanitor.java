@@ -26,6 +26,13 @@ import java.util.Set;
  * task dispatches) and whenever the queue becomes idle. It is never called
  * while work is active, so a live {@code .part} or extraction file is never a
  * deletion candidate.
+ *
+ * <p>The two directories are swept with different rules. A share copy is
+ * protected by name, because an active task references it through its
+ * {@code content://} URI. A temporary download file is referenced by nothing —
+ * only the running worker knows it — so the caller must pass
+ * {@code allowTempSweep} only when no task is running. The caller enforces
+ * that with the queue's own idle state; this class never guesses.
  */
 final class ShareCacheJanitor {
 
@@ -39,8 +46,11 @@ final class ShareCacheJanitor {
      *
      * @param context any context
      * @param referencedUrls content URIs of files an active task still needs
+     * @param allowTempSweep whether no task is running, so a temporary
+     *        download file may be reclaimed
      */
-    static void sweep(Context context, Set<String> referencedUrls) {
+    static void sweep(Context context, Set<String> referencedUrls,
+            boolean allowTempSweep) {
         if (context == null) {
             return;
         }
@@ -54,9 +64,11 @@ final class ShareCacheJanitor {
             }
         }
         sweepDirectory(ShareCacheProvider.cacheDirectory(context), referencedNames);
-        // Temp download files are never referenced by a content URI: a killed
-        // process is the only thing that can leave one behind.
-        sweepDirectory(context.getCacheDir(), new HashSet<String>());
+        // A temporary download file is referenced by nothing but the running
+        // worker, so it is only swept when the caller says no task is active.
+        if (allowTempSweep) {
+            sweepDirectory(context.getCacheDir(), new HashSet<String>());
+        }
     }
 
     private static void sweepDirectory(File directory, Set<String> referencedNames) {
