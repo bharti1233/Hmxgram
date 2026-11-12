@@ -16,11 +16,13 @@
 #               by default; enable it only for throwaway-signed test builds.
 #               It is refused when signing with the release keystore.
 #   --downloader
-#               apply the "Downloader share target" patch. The patch is
-#               DISABLED by default because it declares an exported activity;
-#               enable it only for a reviewed build that must carry the
-#               downloader share target (the M2 device test). The caller is
-#               expected to assert the patch in the patch report.
+#               apply the downloader's own patches: the "Downloader share
+#               target" patch (DISABLED by default because it declares an
+#               exported activity) and the "Downloader media observer" patch
+#               (DISABLED by default because it reads the media the user
+#               browses). Enable them only for a reviewed build that must
+#               carry the downloader (the device test). The caller is
+#               expected to assert both patches in the patch report.
 #
 # Split bundles: an APKMirror .apkm (or .xapk/.apks) is a zip of base.apk plus
 # split APKs. The Morphe CLI patches one APK, so those are merged into a single
@@ -231,7 +233,7 @@ ARGS=(-jar "$CLI" patch -p "$MPP" -f -r "$REPORT" -o "$OUT")
 # an exported activity, so it is only applied when the caller explicitly asks
 # for it. The patch report then has to list it, which verify_patch_report.py
 # enforces through EXPECTED_PATCHES.
-[ "$ENABLE_DOWNLOADER" -eq 1 ] && ARGS+=(-e "Downloader share target")
+[ "$ENABLE_DOWNLOADER" -eq 1 ] && ARGS+=(-e "Downloader share target" -e "Downloader media observer")
 
 # With a keystore password, defer signing to apksigner (the CLI can't read the
 # PKCS12 keystore); otherwise let the CLI sign with a throwaway key for testing.

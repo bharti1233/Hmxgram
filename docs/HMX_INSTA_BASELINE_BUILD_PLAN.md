@@ -177,9 +177,11 @@ explicitly:
 * `build.sh --downloader` adds `-e "Downloader share target"`;
 * the workflow exposes it as the boolean input `enable_downloader`
   (default `false`, so no existing build changes);
-* when it is enabled the patch-report expectation switches to the 15-name
-  list and `MIN_APPLIED_PATCHES` becomes 15, so the build **fails** if the
-  patch did not apply;
+* the switch applies the downloader's two own patches, the share target and
+  the media observer;
+* when it is enabled the patch-report expectation switches to the 16-name
+  list and `MIN_APPLIED_PATCHES` becomes 16, so the build **fails** if
+  either patch did not apply;
 * the publish step re-checks the patch report before uploading, so an APK
   without the patch is never published.
 
