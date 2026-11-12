@@ -89,7 +89,7 @@ jobs:
       EXPECTED_INSTAGRAM_VERSION_CODE: '386014712'
       EXPECTED_META_CERT_SHA256: 3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014
       MIN_RES_ENTRIES: '12000'
-      MIN_APPLIED_PATCHES: '10'
+      MIN_APPLIED_PATCHES: '14'
       EXPECTED_PATCHES: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name'
     steps:
       - name: Checkout
@@ -519,6 +519,47 @@ jobs:
           echo "APK_SHA256=$(sha256sum feurstagram.apk | awk '{print $1}')" >> "$GITHUB_ENV"
           echo "APK_CERT_SHA256=$signer" >> "$GITHUB_ENV"
 
+      - name: Verify protected Instagram methods
+        env:
+          BASE_APK_TOKEN: ${{ secrets.BASE_APK_TOKEN }}
+          DIST_REPO: bharti1233/hmx-build-inputs
+          PROTECTED_TAG: hmx-baseline-454-verified
+          PROTECTED_ASSET: hmx-insta-454.0.0.54.77-test.apk
+        run: |
+          set -euo pipefail
+          bash scripts/ci/test_protected_methods.sh
+
+          mkdir -p "$RUNNER_TEMP/hmx-baseline"
+          auth="$RUNNER_TEMP/baseline-auth.header"
+          umask 077
+          printf 'Authorization: Bearer %s\n' "$BASE_APK_TOKEN" > "$auth"
+          trap 'rm -f "$auth"' EXIT
+          api="https://api.github.com/repos/$DIST_REPO"
+
+          # Fail closed if the frozen reference is missing or was tampered with:
+          # the verifier also checks the manifest pin against these exact bytes.
+          release="$(curl -sS --fail -H @"$auth" \
+            -H 'Accept: application/vnd.github+json' \
+            "$api/releases/tags/$PROTECTED_TAG")"
+          asset_url="$(printf '%s' "$release" | jq -r \
+            --arg name "$PROTECTED_ASSET" \
+            '.assets[] | select(.name == $name) | .url' | head -1)"
+          if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
+            echo "::error title=Missing protected baseline::Release $DIST_REPO@$PROTECTED_TAG has no asset $PROTECTED_ASSET."
+            exit 1
+          fi
+          curl --fail --location --retry 3 --retry-delay 5 \
+            --proto '=https' --tlsv1.2 --max-time 600 --silent --show-error \
+            -H @"$auth" -H 'Accept: application/octet-stream' \
+            -o "$RUNNER_TEMP/hmx-baseline/baseline.apk" "$asset_url"
+
+          python3 scripts/ci/verify_protected_methods.py \
+            --manifest scripts/ci/protected_methods.json \
+            --baseline "$RUNNER_TEMP/hmx-baseline/baseline.apk" \
+            --candidate "$APK_OUT" \
+            --report "$RUNNER_TEMP/protected-methods-report.json"
+          rm -rf "$RUNNER_TEMP/hmx-baseline"
+
       - name: Install smoke test on arm64 Android 15
         if: inputs.run_install_test
         env:
@@ -652,6 +693,7 @@ jobs:
               echo "- Device install test: **not run** (\`run_install_test=false\`); arm64 Android 15 installation remains pending verification"
             fi
             echo "- Standalone packaging: validated (no split metadata, merged density resources)"
+            echo "- Protected Instagram methods: verified against \`hmx-baseline-454-verified\` (protected-methods-report.json)"
             echo "- Artifact file: \`${APK_OUT}\`"
             echo "- SHA-256:"
             echo '```'
@@ -684,6 +726,7 @@ jobs:
             feurstagram-*.apk.sha256
             ${{ runner.temp }}/apk-certs.txt
             ${{ runner.temp }}/standalone-validation.txt
+            ${{ runner.temp }}/protected-methods-report.json
             ${{ github.workspace }}/build/patch-report.json
           if-no-files-found: error
           retention-days: 7

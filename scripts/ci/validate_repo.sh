@@ -38,7 +38,10 @@ for f in \
   scripts/branding/apply_launcher_branding.py \
   docs/HMX_INSTA_REBRANDING_AUDIT.md \
   docs/HMX_INSTA_BRANDING_GUIDE.md \
-  docs/HMX_INSTA_UPDATER.md
+  docs/HMX_INSTA_UPDATER.md \
+  docs/HMX_INSTA_BASELINE_FEATURE_INVENTORY.md \
+  scripts/ci/verify_protected_methods.py \
+  scripts/ci/test_protected_methods.sh
  do
   if [ -f "$f" ]; then note "ok: $f"; else bad "missing required file: $f"; fi
 done
@@ -91,7 +94,7 @@ else
 fi
 
 note "== Executable modes =="
-for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
+for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/ci/verify_protected_methods.py scripts/ci/test_protected_methods.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"
   if [ "$mode" = "100755" ]; then note "ok: $f is executable in git"; else bad "$f must be mode 100755 (found $mode)"; fi
 done
@@ -173,7 +176,16 @@ validate_standalone_apk.sh
 install_smoke_test.sh
 EXPECTED_INSTAGRAM_VERSION_CODE
 run_install_test
+verify_protected_methods.py
+hmx-baseline-454-verified
+protected-methods-report.json
 NEEDLES
+
+if grep -qF 'scripts/ci/test_protected_methods.sh' .github/workflows/ci.yml; then
+  note "ok: ci.yml runs the protected-method verifier self-test"
+else
+  bad "ci.yml must run scripts/ci/test_protected_methods.sh"
+fi
 
 if grep -qF 'bash "$VALIDATE_INPUT"' build.sh && \
    grep -qF 'bash "$VALIDATE_BUNDLE"' build.sh && \

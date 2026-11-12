@@ -41,6 +41,9 @@ jobs:
       - name: Test patch report verifier
         run: bash scripts/ci/test_patch_report.sh
 
+      - name: Test protected-method verifier
+        run: bash scripts/ci/test_protected_methods.sh
+
       - name: Validate HMX Insta branding
         run: bash scripts/ci/validate_branding.sh
 
