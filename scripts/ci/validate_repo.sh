@@ -231,7 +231,7 @@ if grep -qF 'enable_downloader:' .github/workflows/apk.yml && \
    grep -qF 'args+=(--downloader)' .github/workflows/apk.yml && \
    grep -qF 'EXPECTED_PATCHES_WITH_DOWNLOADER' .github/workflows/apk.yml && \
    grep -qF -- '--downloader) ENABLE_DOWNLOADER=1 ;;' build.sh && \
-   grep -qF 'ARGS+=(-e "Downloader share target")' build.sh; then
+   grep -qF 'ARGS+=(-e "Downloader share target" -e "Downloader media observer")' build.sh; then
   note "ok: the downloader share target is only reachable through the explicit downloader build switch"
 else
   bad "the downloader share target must only be enabled through the explicit downloader build switch"

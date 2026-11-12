@@ -61,7 +61,7 @@ on:
         default: false
         type: boolean
       enable_downloader:
-        description: Apply the default-off "Downloader share target" patch (the M2 device-test build). The patch report must then list it
+        description: Apply the downloader's own default-off patches (the share target and the media observer). The patch report must then list them
         required: true
         default: false
         type: boolean
@@ -107,7 +107,7 @@ jobs:
       # The reviewed M2 build adds one more default-off patch. The expectation
       # switches to this list only when enable_downloader is true, so an
       # ordinary build still has to pass the unchanged 14-patch expectation.
-      EXPECTED_PATCHES_WITH_DOWNLOADER: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target'
+      EXPECTED_PATCHES_WITH_DOWNLOADER: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -246,8 +246,8 @@ jobs:
           # and a build that does not ask for it must not contain it.
           if [ "$ENABLE_DOWNLOADER" = "true" ]; then
             echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_DOWNLOADER" >> "$GITHUB_ENV"
-            echo "MIN_APPLIED_PATCHES=15" >> "$GITHUB_ENV"
-            echo "::notice::Downloader share target patch enabled for this build."
+            echo "MIN_APPLIED_PATCHES=16" >> "$GITHUB_ENV"
+            echo "::notice::The downloader patches are enabled for this build."
           fi
 
       - name: Enforce least-privilege private-asset token
@@ -638,6 +638,8 @@ jobs:
           if [ "${ENABLE_DOWNLOADER:-false}" = "true" ]; then
             grep -qF 'Downloader share target' build/patch-report.json || {
               echo "::error::The patch report does not list the Downloader share target patch"; exit 1; }
+            grep -qF 'Downloader media observer' build/patch-report.json || {
+              echo "::error::The patch report does not list the Downloader media observer patch"; exit 1; }
           fi
 
           # Verify the exact bytes and signer against the locally generated build report.
@@ -719,9 +721,9 @@ jobs:
             echo "- Base input kind: \`${{ inputs.base_apk_kind }}\`"
             echo "- Clone package: \`${CLONE}\`"
             if [ "${{ inputs.enable_downloader }}" = "true" ]; then
-              echo "- Downloader share target patch: **ENABLED** (the patch report must list it)"
+              echo "- Downloader patches: **ENABLED** (the patch report must list the share target and the media observer)"
             else
-              echo "- Downloader share target patch: **disabled** (default-off patch, not applied)"
+              echo "- Downloader patches: **disabled** (default-off patches, not applied)"
             fi
             case "${SIGNING_MODE:-}" in
               release) echo "- Signing mode: **release keystore** (certificate pinned by \`RELEASE_CERT_SHA256\`)" ;;

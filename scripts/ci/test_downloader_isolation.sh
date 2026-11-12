@@ -14,20 +14,21 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-BASE="${HMX_DOWNLOADER_BASE:-c6ab02441fe7c7172ade483b37d2c274bd83439c}"
-# The baseline is the reviewed CI commit that adds the explicit downloader
-# build switch (the M1 integration commit ba72c21 is its ancestor). Everything
-# the downloader milestone changes is measured from there, so the milestone
-# diff still contains no protected file. The digest below pins the exact
-# content of every protected file, build.sh and apk.yml included, so any later
-# change to them still fails this check.
+BASE="${HMX_DOWNLOADER_BASE:-6463392c4913956bdf25aa5afe11ebc0f20648e1}"
+# The baseline is the reviewed CI commit that lets the gated build apply the
+# downloader's own patches (the M1 integration commit ba72c21 is its
+# ancestor). Everything the downloader milestones change is measured from
+# there, so the milestone diff still contains no protected file. The digest
+# below pins the exact content of every protected file, build.sh and apk.yml
+# included, so any later change to them still fails this check.
 #
-# Computed from the reviewed CI baseline plus the reviewed M2/M3 files over the
-# protected paths listed below. The share-target patch is deliberately
-# included. The digest was last re-pinned for the M3 screen: the delta was
-# attributed to the downloader patch alone (it declares the new activity),
-# with every other protected file byte-identical to the previous pin.
-PINNED_PROTECTED_DIGEST="2551414d2492fa6feb4fdbfba84a730509890bdd8afb9b9f914c798f38f26a34"
+# Computed from the reviewed CI baseline plus the reviewed M2/M3/M4 files over
+# the protected paths listed below. The share-target patch is deliberately
+# included. The digest was last re-pinned when the CI baseline moved to the
+# commit that lets the build apply the downloader's second patch: the delta
+# was attributed to build.sh and apk.yml alone, with every other protected
+# file byte-identical to the previous pin.
+PINNED_PROTECTED_DIGEST="984d63eb97e9a20a7f2ae6b5f3c11d3b4467b24786c1b9e1fd101e5faaa25167"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
@@ -149,6 +150,7 @@ while IFS= read -r path; do
     docs/HMX_INSTA_M2_ANDROID_SHELL.md) ;;
     docs/HMX_INSTA_M2_DEVICE_CHECKLIST.md) ;;
     docs/HMX_INSTA_M3_DOWNLOADER_UI.md) ;;
+    docs/HMX_INSTA_M4_INSTAGRAM_MEDIA.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;
