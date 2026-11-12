@@ -23,6 +23,10 @@
 #               browses). Enable them only for a reviewed build that must
 #               carry the downloader (the device test). The caller is
 #               expected to assert both patches in the patch report.
+#   --ghost
+#               apply the "Ghost Mode settings" patch (DISABLED by default,
+#               because it changes what the app shows). Enable it only for a
+#               reviewed build that must carry the privacy screen.
 #
 # Split bundles: an APKMirror .apkm (or .xapk/.apks) is a zip of base.apk plus
 # split APKs. The Morphe CLI patches one APK, so those are merged into a single
@@ -103,6 +107,7 @@ INSTALL=0
 DEBUG=0
 ALLOW_SIGNATURE_BYPASS=0
 ENABLE_DOWNLOADER=0
+ENABLE_GHOST=0
 for arg in "$@"; do
     case "$arg" in
         --clone) CLONE=1 ;;
@@ -110,6 +115,7 @@ for arg in "$@"; do
         --debug) DEBUG=1 ;;
         --allow-signature-bypass) ALLOW_SIGNATURE_BYPASS=1 ;;
         --downloader) ENABLE_DOWNLOADER=1 ;;
+        --ghost) ENABLE_GHOST=1 ;;
         *) APK="$arg" ;;
     esac
 done
@@ -234,6 +240,7 @@ ARGS=(-jar "$CLI" patch -p "$MPP" -f -r "$REPORT" -o "$OUT")
 # for it. The patch report then has to list it, which verify_patch_report.py
 # enforces through EXPECTED_PATCHES.
 [ "$ENABLE_DOWNLOADER" -eq 1 ] && ARGS+=(-e "Downloader share target" -e "Downloader media observer")
+[ "$ENABLE_GHOST" -eq 1 ] && ARGS+=(-e "Ghost Mode settings")
 
 # With a keystore password, defer signing to apksigner (the CLI can't read the
 # PKCS12 keystore); otherwise let the CLI sign with a throwaway key for testing.
