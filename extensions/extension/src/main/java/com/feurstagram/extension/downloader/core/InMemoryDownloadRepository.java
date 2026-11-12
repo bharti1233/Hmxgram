@@ -75,6 +75,20 @@ public final class InMemoryDownloadRepository implements DownloadRepository {
     }
 
     @Override
+    public synchronized boolean delete(String taskId) {
+        if (taskId == null || taskId.trim().isEmpty()) {
+            throw new IllegalArgumentException("taskId must not be blank");
+        }
+        for (int index = 0; index < entries.size(); index++) {
+            if (entries.get(index).id().equals(taskId)) {
+                entries.remove(index);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
     public synchronized int size() {
         return entries.size();
     }

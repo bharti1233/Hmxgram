@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 #
-# Static feature gates for the downloader core and its M2 Android shell.
+# Static feature gates for the downloader core, its M2 Android shell and the
+# M3 downloader screen.
 #
 # Enforces the rules from docs/HMX_INSTA_NEXT_PHASE_PLAN.md section 4.1:
 #   * the core imports only JDK classes (no Android, no AndroidX);
 #   * the Android shell imports platform classes but never Instagram internals,
 #     cookies, authorization headers or broad storage permissions;
-#   * the share target is the only downloader component declared in a manifest,
-#     and it is added by a default-off patch;
+#   * every downloader component declared in a manifest comes from the single
+#     default-off downloader patch, and the extension's own manifest declares
+#     none of them;
 #   * the expected patch inventory has not grown implicitly.
 #
 # No build, no Android SDK, no device, no network.
@@ -110,7 +112,8 @@ if [ -d "$ANDROID_DIR" ]; then
     ShareCacheProvider.java \
     DownloadService.java \
     PendingWorkStore.java \
-    ShareCacheJanitor.java
+    ShareCacheJanitor.java \
+    DownloaderActivity.java
   do
     if [ -f "$ANDROID_DIR/$file" ]; then
       note "ok: downloader/android/$file"
@@ -140,6 +143,7 @@ if [ -f "$SHARE_PATCH" ]; then
   fi
   for needle in \
     'ShareTargetActivity' \
+    'DownloaderActivity' \
     'android.intent.action.SEND' \
     'android.intent.action.SEND_MULTIPLE' \
     'ShareCacheProvider' \
