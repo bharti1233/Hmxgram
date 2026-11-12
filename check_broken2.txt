@@ -1,0 +1,130 @@
+ERROR: the capture hook is broken
+  call:   8bd73c: 7701 13d9 0200                         |03bc: invoke-static/range {v2}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   8bdb00: 7701 13d9 0200                         |059e: invoke-static/range {v2}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   8cb4f8: 7701 13d9 0000                         |0004: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   90a1a2: 7701 13d9 0000                         |0dbb: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   93cf24: 7701 13d9 0000                         |0ce0: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   93d49e: 7701 13d9 0000                         |0f9d: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   93d6a6: 7701 13d9 0000                         |10a1: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   93f184: 7701 13d9 0200                         |0922: invoke-static/range {v2}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   94b7e2: 7701 13d9 c600                         |4329: invoke-static/range {v198}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   94d0b4: 7701 13d9 0f00                         |4f92: invoke-static/range {v15}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   94da6e: 7701 13d9 0f00                         |546f: invoke-static/range {v15}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   94f3a6: 7701 13d9 0f00                         |610b: invoke-static/range {v15}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   96ce62: 7701 13d9 2400                         |049d: invoke-static/range {v36}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d913
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   5e6814: 7701 92e1 0600                         |00c4: invoke-static/range {v6}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e192
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   5e6886: 7701 92e1 0600                         |00fd: invoke-static/range {v6}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e192
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   5e68f8: 7701 92e1 0600                         |0136: invoke-static/range {v6}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e192
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   6cf6ec: 7701 92e1 0100                         |000c: invoke-static/range {v1}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e192
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   72a1bc: 7701 92e1 0900                         |0114: invoke-static/range {v9}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e192
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   50032c: 7701 f7e7 0100                         |0c66: invoke-static/range {v1}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e7f7
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   5454d6: 7701 6dd3 0400                         |005b: invoke-static/range {v4}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d36d
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   6df8e4: 7701 6dd3 0000                         |004e: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d36d
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   3fd190: 7701 99df 0000                         |00c4: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@df99
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   3fd244: 7701 99df 0000                         |011e: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@df99
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   6f6bb0: 7701 99df 0000                         |002e: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@df99
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   816678: 7701 99df 0300                         |0058: invoke-static/range {v3}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@df99
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   56640a: 7701 62e5 0000                         |02c5: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e562
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   61892e: 7701 62e5 0000                         |0023: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e562
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   65602e: 7701 69e3 0c00                         |0035: invoke-static/range {v12}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@e369
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   2bccee: 7701 0bb9 0000                         |0549: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@b90b
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   32b7a2: 7701 0bb9 0100                         |03c9: invoke-static/range {v1}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@b90b
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   40f510: 7701 00d9 0300                         |001c: invoke-static/range {v3}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d900
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: the capture hook is broken
+  call:   40f658: 7701 00d9 0300                         |003e: invoke-static/range {v3}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V // method@d900
+  reason: the capture call must return the media, not void; the capture call must come after Instagram's move-result-object, otherwise that move-result consumes the capture's result
+  the capture call must return the media, not void
+ERROR: 32 of 32 capture call(s) are broken
+checking 10 dex file(s) that reference the capture hook
