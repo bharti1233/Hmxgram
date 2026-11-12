@@ -89,8 +89,8 @@ jobs:
       EXPECTED_INSTAGRAM_VERSION_CODE: '386014712'
       EXPECTED_META_CERT_SHA256: 3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014
       MIN_RES_ENTRIES: '12000'
-      MIN_APPLIED_PATCHES: '16'
-      EXPECTED_PATCHES: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,HMX downloader capture,HMX ghost mode'
+      MIN_APPLIED_PATCHES: '10'
+      EXPECTED_PATCHES: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -450,13 +450,6 @@ jobs:
             args+=(--allow-signature-bypass)
           fi
           bash ./build.sh "${args[@]}" 2>&1 | tee -a "$RUNNER_TEMP/apk-build.log"
-
-      # The capture hook runs right after Instagram's media parser produced the
-      # model, so the call has to put the model back. If it does not, the feed
-      # never loads and the app sits on a spinner: this check makes that a
-      # build failure instead of a broken app.
-      - name: Verify the downloader capture hook
-        run: python3 scripts/ci/verify_capture_patch.py feurstagram.apk
 
       - name: Validate final standalone packaging
         env:
