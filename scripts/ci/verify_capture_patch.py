@@ -34,7 +34,7 @@ import zipfile
 REGISTRY = b"Lcom/feurstagram/extension/downloader/MediaRegistry;"
 # dexdump prints methods in smali form: "Lcom/…/MediaRegistry;.capture:(Ljava/lang/Object;)Ljava/lang/Object;"
 CAPTURE_CALL = re.compile(r"MediaRegistry[.;](?:->|\.)capture:\(Ljava/lang/Object;\)(Ljava/lang/Object;|V)")
-OBJECT_RETURN = "(Ljava/lang/Object;)Ljava/lang/Object;"
+OBJECT_RETURN = "Ljava/lang/Object;"
 INVOKE = re.compile(r"invoke-static(?:/range)?\s*\{[^}]*?v(\d+)")
 MOVE = re.compile(r"move-result-object\s+v(\d+)")
 
