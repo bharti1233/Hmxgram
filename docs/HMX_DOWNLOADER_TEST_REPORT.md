@@ -80,18 +80,37 @@ on a black screen with an endless spinner when the network was on; with the
 network off the login screen appeared; and logging in with the network on left
 the spinner again.
 
-**Root cause**: the capture hook is inserted right after Instagram's media
-parser produced the model, into the register that holds it. The call itself
-destroys that register — which is why the feed filter, the pattern this project
-has shipped for months, re-materialises the model with a `move-result-object`
-right after its own call. The new hook called a `void` method and did not put
-the model back, so every parsed media was lost: with a network the app parses
-the feed and the session and never gets a usable model (spinner); without one
-nothing is parsed, so the login screen appears; after logging in the feed is
-parsed and the spinner is back.
+**Root cause** (measured on the published broken APK, `debug-test-43168216595-1`,
+with `dexdump`): the capture hook was inserted *between* Instagram's call of the
+media parser and Instagram's own `move-result-object`:
 
-**Fix**: `MediaRegistry.capture` now returns the media unchanged and the patch
-puts it straight back, byte for byte the pattern the feed filter uses.
+```
+0387: invoke-static {v12}, LX/06nm;.A02:(...)Lcom/instagram/feed/media/Media;   <- Instagram's parser call
+038b: invoke-static/range {v0}, Lcom/feurstagram/extension/downloader/MediaRegistry;.capture:(Ljava/lang/Object;)V   <- our hook
+038e: move-result-object v0                                    <- Instagram's move-result, now on OUR void call
+038f: if-eqz v0, ...
+```
+
+A `move-result-object` after a **void** call is invalid dex. The class fails
+verification, every media parse throws, and the app never gets a usable model:
+with a network the feed and the session are parsed and the spinner never ends;
+without one nothing is parsed, so the login screen appears; after logging in the
+feed is parsed and the spinner is back.
+
+The pattern this project has shipped for months — the feed filter — inserts
+*after* Instagram's own `move-result-object`:
+
+```
+0387: invoke-static {v12}, ...A02:(...)Lcom/instagram/feed/media/Media;   <- parser call
+038a: move-result-object v37                                   <- Instagram's move-result: v37 = the media
+038b: invoke-static/range {v37}, Block.filterFeedMedia:(Ljava/lang/Object;)Ljava/lang/Object;   <- the filter
+038e: move-result-object v37                                   <- the filter puts the media back
+038f: check-cast v37, Lcom/instagram/feed/media/Media;
+```
+
+**Fix**: the hook is now inserted after Instagram's `move-result-object`,
+`MediaRegistry.capture` returns the media unchanged (not `void`), and the patch
+puts it straight back — the feed filter's pattern, instruction for instruction.
 
 **Second defect in the same new code**: the installer added a global layout
 listener on *every* activity resume and never removed it, so the listeners
@@ -104,9 +123,10 @@ and the scan is throttled.
 * a static check that the patch restores the register and that the installer
   removes its listener;
 * a dex-level check (`scripts/ci/verify_capture_patch.py`) that runs in every
-  gated build: it disassembles the patched APK and fails the build if any
-  capture call is not followed by the restore — the exact defect that broke
-  the app can no longer reach a device.
+  gated build: it disassembles the patched APK and fails the build unless every
+  capture call returns the media, sits after Instagram's `move-result-object`
+  and is followed by the restore. It was calibrated against the published
+  broken APK, which it rejects with the exact reason for all 32 call sites.
 
 ---
 

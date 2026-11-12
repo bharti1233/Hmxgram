@@ -66,7 +66,14 @@ private fun Instruction.isStringHash(): Boolean {
         reference.name == "hashCode"
 }
 
-/** One place where the media parser hands a model back to its caller. */
+/**
+ * One place where the media parser hands a model back to its caller.
+ *
+ * [index] is the instruction *after* Instagram's own `move-result-object`: the
+ * model is already in [register] there. Inserting before that move-result
+ * would take the result of the capture call instead of the parser's, which is
+ * invalid dex.
+ */
 private data class CallSite(val type: String, val method: Int, val index: Int, val register: Int)
 
 /**
@@ -77,11 +84,16 @@ private data class CallSite(val type: String, val method: Int, val index: Int, v
  * media type and the owner). Nothing is copied out of the app and nothing is
  * sent anywhere.
  *
- * The hook is inserted right after the parser produced the model, into the
- * register that holds it. The call itself destroys that register, so the model
- * is put straight back with a `move-result-object` — the same pattern the feed
- * filter uses. Without that restore every parsed media is lost, the feed never
- * loads and the app sits on a spinner.
+ * The hook is inserted after Instagram's own `move-result-object`, where the
+ * parsed model is already in a register. The call takes that register and
+ * returns the model unchanged, and a `move-result-object` puts it back — the
+ * same pattern the feed filter uses.
+ *
+ * Inserting *before* Instagram's move-result would take the result of the
+ * capture call instead of the parser's: the dex would hold a move-result for a
+ * void call, the class would fail verification, every media parse would throw
+ * and the app would sit on a spinner with the network on. That is exactly what
+ * the first version of this patch did.
  *
  * Only the classes that actually call the parser are made mutable: touching
  * every class in the dex would rewrite all of Instagram's 223,000 classes and
@@ -134,10 +146,14 @@ val downloaderCapturePatch = bytecodePatch(
                     if (reference.parameterTypes.map { it.toString() } != parserParams) {
                         return@forEachIndexed
                     }
+                    // Instagram materialises the parser's result with its own
+                    // move-result-object. The hook goes *after* it: the model is
+                    // in a register by then, and the move-result that follows
+                    // the parser stays attached to the parser.
                     val next = methodInstructions.elementAtOrNull(index + 1) ?: return@forEachIndexed
                     if (next.opcode != Opcode.MOVE_RESULT_OBJECT) return@forEachIndexed
                     callSites += CallSite(
-                        classDef.type, methodIndex, index + 1,
+                        classDef.type, methodIndex, index + 2,
                         (next as OneRegisterInstruction).registerA,
                     )
                 }
