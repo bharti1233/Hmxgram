@@ -5,6 +5,13 @@ All notable changes to Feurstagram should be documented in this file.
 ## Unreleased
 
 ### Added
+- **Ghost Mode settings (M5, draft, not merged).** A dedicated "HMX Ghost
+  Mode" screen lists the privacy controls with an explanation each. The
+  controls that this repository cannot implement safely — the ones that would
+  need Instagram's request paths changed — are shown with the exact reason
+  and cannot be switched on. The two local controls that do work ("ask before
+  saving", "hide the download history") are real, and their preferences live
+  in their own file, off by default.
 - **Instagram media integration (M4, draft, not merged).** A default-off hook
   records the media the user browses, so the downloader can save it from
   inside the app instead of only through the share sheet. The observation is

@@ -21,6 +21,8 @@ import com.feurstagram.extension.downloader.core.DownloadState;
 import com.feurstagram.extension.downloader.core.DownloaderRow;
 import com.feurstagram.extension.downloader.core.MediaItem;
 import com.feurstagram.extension.downloader.core.ObservedMedia;
+import com.feurstagram.extension.ghost.GhostFeature;
+import com.feurstagram.extension.ghost.android.GhostState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,8 +59,10 @@ public final class DownloaderActivity extends Activity {
     private HmxDownloader downloader;
     private ListView list;
     private TextView empty;
+    private Button reveal;
     private RowAdapter adapter;
     private boolean resumed;
+    private boolean historyRevealed;
 
     private final Runnable poll = new Runnable() {
         @Override
@@ -152,6 +156,18 @@ public final class DownloaderActivity extends Activity {
         empty.setGravity(Gravity.CENTER);
         root.addView(empty);
 
+        reveal = new Button(this);
+        reveal.setText("Show the download history");
+        reveal.setVisibility(View.GONE);
+        reveal.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                historyRevealed = true;
+                refresh();
+            }
+        });
+        root.addView(reveal);
+
         Button clear = new Button(this);
         clear.setText("Clear finished entries");
         clear.setOnClickListener(new View.OnClickListener() {
@@ -183,6 +199,11 @@ public final class DownloaderActivity extends Activity {
     private void refresh() {
         List<ObservedMedia> seen = MediaObserver.observed();
         List<DownloaderRow> current = downloader.rows();
+        if (historyHidden() && !historyRevealed) {
+            // The Ghost Mode control keeps the list hidden until the user
+            // asks for it.
+            current = new ArrayList<DownloaderRow>();
+        }
         if (sameRows(current) && sameObserved(seen)) {
             return;
         }
@@ -191,10 +212,18 @@ public final class DownloaderActivity extends Activity {
         observed.clear();
         observed.addAll(seen);
         adapter.notifyDataSetChanged();
-        empty.setVisibility(rows.isEmpty() && observed.isEmpty()
+        boolean hidden = historyHidden() && !historyRevealed;
+        reveal.setVisibility(hidden ? View.VISIBLE : View.GONE);
+        empty.setVisibility(!hidden && rows.isEmpty() && observed.isEmpty()
                 ? View.VISIBLE : View.GONE);
-        list.setVisibility(rows.isEmpty() && observed.isEmpty()
+        list.setVisibility(!hidden && rows.isEmpty() && observed.isEmpty()
                 ? View.GONE : View.VISIBLE);
+    }
+
+    /** Whether the Ghost Mode control keeps the history hidden. */
+    private boolean historyHidden() {
+        return GhostState.isActiveSafely(getApplicationContext(),
+                GhostFeature.HIDE_DOWNLOAD_HISTORY);
     }
 
     /**
