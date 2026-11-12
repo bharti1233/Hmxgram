@@ -50,6 +50,64 @@ public final class DownloadTask {
     }
 
     /**
+     * Rehydrates a terminal task loaded from persisted history.
+     *
+     * <p>Only {@link DownloadState#isTerminal() terminal} states are accepted:
+     * an active task from a previous process must not be resumed silently, so
+     * the caller has to start it as a fresh queue entry. The combinations of
+     * state, error and result are validated so corrupt history cannot create
+     * an impossible task.
+     *
+     * <p>Package-visible: the Android shell goes through
+     * {@link DownloadHistoryCodec}, which is the only supported persister.
+     */
+    static DownloadTask restore(String id, MediaItem item, int maxAttempts,
+            long createdAtMs, DownloadState state, int attempts,
+            DownloadError error, DownloadResult result) {
+        if (state == null || !state.isTerminal()) {
+            throw new IllegalArgumentException(
+                    "only terminal tasks can be restored, found " + state);
+        }
+        if (attempts < 0) {
+            throw new IllegalArgumentException("attempts must not be negative");
+        }
+        if (attempts > maxAttempts) {
+            throw new IllegalArgumentException(
+                    "attempts (" + attempts + ") exceeds maxAttempts (" + maxAttempts + ")");
+        }
+        if (state == DownloadState.DONE) {
+            if (error != null) {
+                throw new IllegalArgumentException("a completed task cannot carry an error");
+            }
+            if (result == null || !result.isSuccess()) {
+                throw new IllegalArgumentException(
+                        "a completed task needs a successful result");
+            }
+        } else {
+            if (result != null) {
+                throw new IllegalArgumentException(
+                        "only a completed task can carry a result");
+            }
+            if (state == DownloadState.FAILED
+                    && (error == null || error == DownloadError.CANCELLED)) {
+                throw new IllegalArgumentException(
+                        "a failed task needs a non-cancellation error");
+            }
+            if (state == DownloadState.CANCELLED
+                    && error != null && error != DownloadError.CANCELLED) {
+                throw new IllegalArgumentException(
+                        "a cancelled task can only carry the cancellation error");
+            }
+        }
+        DownloadTask task = new DownloadTask(id, item, maxAttempts, createdAtMs);
+        task.state = state;
+        task.attempts = attempts;
+        task.error = error;
+        task.result = result;
+        return task;
+    }
+
+    /**
      * Copy constructor used by {@link #snapshot()}. The caller must hold this
      * task's monitor so the copied state is consistent.
      */
