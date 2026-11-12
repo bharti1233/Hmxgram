@@ -134,7 +134,7 @@ val downloaderCapturePatch = bytecodePatch(
                     if (reference.parameterTypes.map { it.toString() } != parserParams) {
                         return@forEachIndexed
                     }
-                    val next = methodInstructions.getOrNull(index + 1) ?: return@forEachIndexed
+                    val next = methodInstructions.elementAtOrNull(index + 1) ?: return@forEachIndexed
                     if (next.opcode != Opcode.MOVE_RESULT_OBJECT) return@forEachIndexed
                     callSites += CallSite(
                         classDef.type, methodIndex, index + 1,
