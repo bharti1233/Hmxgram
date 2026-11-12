@@ -34,6 +34,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.feurstagram.extension.downloader.DownloadManagerScreen;
+import com.feurstagram.extension.downloader.DownloaderInstaller;
+import com.feurstagram.extension.downloader.HmxDownloader;
+import com.feurstagram.extension.ghost.GhostMode;
+import com.feurstagram.extension.ghost.GhostModeScreen;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -118,6 +124,9 @@ public final class Settings {
         FollowPrompt.maybeShow(activity, () ->
                 QuoicouviewIntro.maybeShow(activity, () -> UpdateChecker.checkWhatsNew(activity)));
         UpdateChecker.check(activity);
+        // The HMX downloader button goes into Instagram's own action row and
+        // viewer controls; the installer watches the screens for them.
+        DownloaderInstaller.install();
     }
 
     /** Unwrap a view's context down to the hosting Activity when possible. */
@@ -636,6 +645,11 @@ public final class Settings {
         addSectionRow(context, app, "moon", "Display and popups", displaySummary(),
                 () -> pages.open("Display and popups", "How Instagram looks and talks to you.",
                         Settings::buildDisplay));
+        addSectionRow(context, app, "download", "Downloader", downloaderSummary(context),
+                () -> pages.open("Downloader", "Save media to your gallery.", Settings::buildDownloader));
+        addSectionRow(context, app, "ghost", "HMX Ghost Mode", ghostSummary(context),
+                () -> pages.open("HMX Ghost Mode", "Keep Instagram from telling others what you do.",
+                        Settings::buildGhostMode));
         addSectionRow(context, app, "info", "About HMX Insta", "HMX Insta by HMXPanel",
                 () -> pages.open("About HMX Insta", "HMX Insta by HMXPanel.", Settings::buildAbout));
         sealGroup(context, app);
@@ -745,6 +759,27 @@ public final class Settings {
         sealGroup(context, display);
     }
 
+    /** The downloader page: what is downloading and what was downloaded. */
+    private static void buildDownloader(Context context, LinearLayout column) {
+        DownloadManagerScreen.build(context, column);
+    }
+
+    /** The ghost-mode page. */
+    private static void buildGhostMode(Context context, LinearLayout column) {
+        GhostModeScreen.build(context, column);
+    }
+
+    /** A short summary of the download queue for the overview row. */
+    private static String downloaderSummary(Context context) {
+        int pending = HmxDownloader.get().pending();
+        return pending == 0 ? "Nothing downloading" : pending + " downloading";
+    }
+
+    /** A short summary of ghost mode for the overview row. */
+    private static String ghostSummary(Context context) {
+        return GhostMode.isMasterEnabled(context) ? "Master switch on" : "Master switch off";
+    }
+
     /**
      * The About page: who ships this build, which version it is, where the
      * source lives and where updates come from.
@@ -835,7 +870,7 @@ public final class Settings {
      * A row that opens a section page: Instagram's own outline icon, the name, a
      * one-line summary of the current state, and a chevron.
      */
-    private static void addSectionRow(Context context, LinearLayout parent, String icon, String label,
+    static void addSectionRow(Context context, LinearLayout parent, String icon, String label,
                                       String summary, Runnable onClick) {
         LinearLayout row = makeRow(context, parent, label, summary);
         Drawable glyph = igIcon(context, ON_SURFACE, "instagram_" + icon + "_pano_outline_24",
@@ -993,7 +1028,7 @@ public final class Settings {
     }
 
     /** An unlabelled group, for a section page whose title already names it. */
-    private static LinearLayout addGroup(Context context, LinearLayout parent) {
+    static LinearLayout addGroup(Context context, LinearLayout parent) {
         LinearLayout group = new LinearLayout(context);
         group.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -1197,7 +1232,7 @@ public final class Settings {
     }
 
     /** Section label plus the container its rows go into. */
-    private static LinearLayout addSection(Context context, LinearLayout parent, String text) {
+    static LinearLayout addSection(Context context, LinearLayout parent, String text) {
         addSectionLabel(context, parent, text);
         LinearLayout group = new LinearLayout(context);
         group.setOrientation(LinearLayout.VERTICAL);
@@ -1209,7 +1244,7 @@ public final class Settings {
      * Give a finished group its connected shape: round on the outside, nearly
      * square where rows meet, with a hairline gap between them.
      */
-    private static void sealGroup(Context context, LinearLayout group) {
+    static void sealGroup(Context context, LinearLayout group) {
         int count = group.getChildCount();
         for (int i = 0; i < count; i++) {
             View row = group.getChildAt(i);
@@ -1228,7 +1263,7 @@ public final class Settings {
     }
 
     /** The shared skeleton of a list row: label, supporting text, trailing control. */
-    private static LinearLayout makeRow(Context context, LinearLayout parent, String label, String support) {
+    static LinearLayout makeRow(Context context, LinearLayout parent, String label, String support) {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -1260,7 +1295,7 @@ public final class Settings {
         return row;
     }
 
-    private static void addRow(Context context, LinearLayout parent, String label, String key, boolean value) {
+    static void addRow(Context context, LinearLayout parent, String label, String key, boolean value) {
         addRow(context, parent, label, key, value, null);
     }
 
@@ -1268,7 +1303,7 @@ public final class Settings {
      * @param onChanged run after the preference is written, for rows another
      *                  section depends on (the nav icons drive the landing picker)
      */
-    private static void addRow(Context context, LinearLayout parent, String label, String key,
+    static void addRow(Context context, LinearLayout parent, String label, String key,
                                boolean value, Runnable onChanged) {
         LinearLayout row = makeRow(context, parent, label, supportText(key));
 
