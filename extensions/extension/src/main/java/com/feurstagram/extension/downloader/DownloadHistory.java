@@ -66,19 +66,19 @@ final class DownloadHistory {
     List<DownloadTask> entries() {
         List<DownloadTask> out = new ArrayList<>();
         if (preferences == null) return out;
-        SharedPreferences all = preferences.getAll();
+        java.util.Map<String, ?> all = preferences.getAll();
         List<String> keys = new ArrayList<>();
         for (String key : all.keySet()) {
             if (key.endsWith(".at")) keys.add(key.substring(0, key.length() - 3));
         }
         keys.sort((a, b) -> Long.compare(
-                all.getLong(b + ".at", 0), all.getLong(a + ".at", 0)));
+                asLong(all.get(b + ".at")), asLong(all.get(a + ".at"))));
         for (String key : keys) {
             DownloadTask task = new DownloadTask(null, "",
                     all.getString(key + ".label", "HMX Insta"));
             String state = all.getString(key + ".state", DownloadTask.State.FAILED.name());
             if (DownloadTask.State.DONE.name().equals(state)) {
-                task.succeed(all.getString(key + ".path", ""));
+                task.succeed(asString(all.get(key + ".path"), ""));
             } else if (DownloadTask.State.CANCELLED.name().equals(state)) {
                 task.cancel();
             } else {
@@ -88,6 +88,14 @@ final class DownloadHistory {
             if (out.size() >= MAX_ENTRIES) break;
         }
         return out;
+    }
+
+    private static long asLong(Object value) {
+        return value instanceof Number ? ((Number) value).longValue() : 0L;
+    }
+
+    private static String asString(Object value, String fallback) {
+        return value instanceof String ? (String) value : fallback;
     }
 
     /** Forgets the history. */

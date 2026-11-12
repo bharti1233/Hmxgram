@@ -1,5 +1,7 @@
 package com.feurstagram.extension.ghost;
 
+import com.feurstagram.extension.Config;
+
 import java.io.IOException;
 import java.net.URI;
 

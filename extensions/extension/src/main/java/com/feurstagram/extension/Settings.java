@@ -1028,7 +1028,7 @@ public final class Settings {
     }
 
     /** An unlabelled group, for a section page whose title already names it. */
-    static LinearLayout addGroup(Context context, LinearLayout parent) {
+    public static LinearLayout addGroup(Context context, LinearLayout parent) {
         LinearLayout group = new LinearLayout(context);
         group.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -1232,7 +1232,7 @@ public final class Settings {
     }
 
     /** Section label plus the container its rows go into. */
-    static LinearLayout addSection(Context context, LinearLayout parent, String text) {
+    public static LinearLayout addSection(Context context, LinearLayout parent, String text) {
         addSectionLabel(context, parent, text);
         LinearLayout group = new LinearLayout(context);
         group.setOrientation(LinearLayout.VERTICAL);
@@ -1244,7 +1244,7 @@ public final class Settings {
      * Give a finished group its connected shape: round on the outside, nearly
      * square where rows meet, with a hairline gap between them.
      */
-    static void sealGroup(Context context, LinearLayout group) {
+    public static void sealGroup(Context context, LinearLayout group) {
         int count = group.getChildCount();
         for (int i = 0; i < count; i++) {
             View row = group.getChildAt(i);

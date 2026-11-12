@@ -3,8 +3,9 @@ package com.feurstagram.patches.downloader
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.instructions
+import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.bytecodePatch
-import app.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
@@ -64,8 +65,8 @@ private fun Instruction.isStringHash(): Boolean {
  * sent anywhere.
  *
  * The patch is anchored on the media parser, the same anchor the feed filter
- * uses, and it fails when the parser is not found: a downloader that silently
- * captures nothing would look like it worked.
+ * uses, and it fails when the parser is not found or hands back no media: a
+ * downloader that silently captures nothing would look like it worked.
  */
 @Suppress("unused")
 val downloaderCapturePatch = bytecodePatch(
@@ -79,49 +80,56 @@ val downloaderCapturePatch = bytecodePatch(
     extendWith(EXTENSION)
 
     execute {
-        val parser = DownloaderMediaParseFingerprint.methodOrNull
-            ?: DownloaderMediaParseInlineFingerprint.methodOrNull
-            ?: throw app.morphe.patcher.patch.PatchException(
+        val fingerprint = when {
+            DownloaderMediaParseFingerprint.methodOrNull != null -> DownloaderMediaParseFingerprint
+            DownloaderMediaParseInlineFingerprint.methodOrNull != null ->
+                DownloaderMediaParseInlineFingerprint
+            else -> throw PatchException(
                 "Instagram's media parser was not found; the HMX downloader cannot capture media")
+        }
 
-        val parserType = parser.classDef.type
+        val parser = fingerprint.method
+        val parserType = fingerprint.classDef.type
         val parserName = parser.name
         val parserParams = parser.parameterTypes.map { it.toString() }
 
         // Every call of the parser hands back a media model: the caller is
-        // where the finished media is available.
-        val callSites = parser.classDef.methods
-            .flatMap { method -> method.instructions.withIndex().map { method to it } }
-            .filter { (_, indexed) ->
-                val instruction = indexed.value
-                if (instruction.opcode != Opcode.INVOKE_STATIC) return@filter false
-                val reference = (instruction as ReferenceInstruction).reference as MethodReference
-                reference.definingClass == parserType &&
-                    reference.name == parserName &&
-                    reference.parameterTypes.map { it.toString() } == parserParams
-            }
-
-        if (callSites.isEmpty()) {
-            throw app.morphe.patcher.patch.PatchException(
-                "Instagram's media parser is never called; the HMX downloader cannot capture media")
-        }
-
+        // where the finished media is available. The call sites of a method are
+        // collected first and the insertions are applied backwards, so the
+        // indices of the sites still to visit do not shift.
         var hooked = 0
-        callSites.forEach { (method, indexed) ->
-            val index = indexed.index
-            val next = method.instructions.getOrNull(index + 1) ?: return@forEach
-            if (next.opcode != Opcode.MOVE_RESULT_OBJECT) return@forEach
-            val register = (next as OneRegisterInstruction).registerA
-            addInstructions(
-                index + 1,
-                "invoke-static/range { v$register .. v$register }, " +
-                    "$REGISTRY_CLASS->capture(Ljava/lang/Object;)V",
-            )
-            hooked++
+        classDefForEach { classDef ->
+            if (classDef.type.startsWith("Lcom/feurstagram/")) return@classDefForEach
+            val mutableClass = mutableClassDefBy(classDef.type)
+            mutableClass.methods.forEach { method ->
+                val callSites = mutableListOf<Pair<Int, Int>>()
+                val methodInstructions = method.instructions
+                methodInstructions.forEachIndexed { index, instruction ->
+                    if (instruction.opcode != Opcode.INVOKE_STATIC) return@forEachIndexed
+                    val reference = (instruction as ReferenceInstruction).reference as MethodReference
+                    if (reference.definingClass != parserType) return@forEachIndexed
+                    if (reference.name != parserName) return@forEachIndexed
+                    if (reference.parameterTypes.map { it.toString() } != parserParams) {
+                        return@forEachIndexed
+                    }
+                    val next = methodInstructions.getOrNull(index + 1) ?: return@forEachIndexed
+                    if (next.opcode != Opcode.MOVE_RESULT_OBJECT) return@forEachIndexed
+                    callSites += (index + 1) to (next as OneRegisterInstruction).registerA
+                }
+                // Backwards, so an insertion does not move the sites still to visit.
+                callSites.sortedByDescending { it.first }.forEach { (index, register) ->
+                    addInstructions(
+                        index,
+                        "invoke-static/range { v$register .. v$register }, " +
+                            "$REGISTRY_CLASS->capture(Ljava/lang/Object;)V",
+                    )
+                    hooked++
+                }
+            }
         }
 
         if (hooked == 0) {
-            throw app.morphe.patcher.patch.PatchException(
+            throw PatchException(
                 "Instagram's media parser hands back no media model; the HMX downloader cannot " +
                     "capture media")
         }

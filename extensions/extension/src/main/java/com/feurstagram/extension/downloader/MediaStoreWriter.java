@@ -26,6 +26,21 @@ final class MediaStoreWriter {
     }
 
     /**
+     * The collection a file is added to. The per-volume collections exist from
+     * Android 10 onwards; on the older platform the single external collection
+     * is used, so the downloader works there too.
+     */
+    private static Uri collectionFor(Context context, boolean video) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            return video
+                    ? MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                    : MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        }
+        return video ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+    }
+
+    /**
      * Publishes an extracted audio track in the gallery.
      *
      * @param context the context
@@ -37,7 +52,9 @@ final class MediaStoreWriter {
     static String writeAudio(Context context, File source, MediaItem item, String name) {
         if (context == null || source == null || !source.exists()) return null;
 
-        Uri collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        Uri collection = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q
+                ? MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                : MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
         values.put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp4");
@@ -90,9 +107,7 @@ final class MediaStoreWriter {
     static String write(Context context, File source, MediaItem item) {
         if (context == null || source == null || !source.exists()) return null;
 
-        Uri collection = item.kind() == MediaKind.VIDEO
-                ? MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                : MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        Uri collection = collectionFor(context, item.kind() == MediaKind.VIDEO);
         String relative = item.kind() == MediaKind.VIDEO
                 ? Environment.DIRECTORY_MOVIES + "/" + MediaNaming.ALBUM
                 : Environment.DIRECTORY_PICTURES + "/" + MediaNaming.ALBUM;

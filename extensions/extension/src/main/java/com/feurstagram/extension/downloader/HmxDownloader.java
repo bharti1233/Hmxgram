@@ -227,7 +227,7 @@ public final class HmxDownloader {
 
             String saved;
             if (item.isAudioOnly()) {
-                saved = AudioExtractor.extract(context, temporary, item.fileName(item.owner()));
+                saved = AudioExtractor.extract(context, temporary, item.fileName(task.owner()));
             } else {
                 saved = MediaStoreWriter.write(context, temporary, item);
             }

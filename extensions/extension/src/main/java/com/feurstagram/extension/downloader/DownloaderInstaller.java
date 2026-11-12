@@ -9,6 +9,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 
 import com.feurstagram.extension.Config;
+import android.app.Application;
 
 import java.lang.ref.WeakReference;
 
