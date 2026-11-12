@@ -1,10 +1,13 @@
 name: APK build (gated)
 
-# Manual, reviewed, main-only APK build.
+# Manual, reviewed APK build.
 #
 # Security properties enforced by this workflow:
-#   - Runs only from refs/heads/main and only through the apk-build environment,
-#     which has a required reviewer and a main-only deployment policy.
+#   - Runs only from an exact allowlisted ref: refs/heads/main or the single v2
+#     milestone branch, and only through the apk-build environment, which has a
+#     required reviewer.
+#   - The environment branch policy must allow the same exact refs; a ref that
+#     is not allowlisted here never reaches the environment or its secrets.
 #   - The base APK is pinned by immutable asset URL + SHA-256 and is re-checked
 #     for package, version, and Meta signing certificate before patching.
 #   - The Instagram signature-check bypass is disabled unless explicitly
@@ -80,8 +83,13 @@ jobs:
     name: Build patched APK
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # Hard guard in addition to the apk-build environment branch policy.
-    if: github.ref == 'refs/heads/main'
+    # Hard guard in addition to the environment branch policy. Keep this an
+    # exact allowlist: never a prefix or wildcard. Milestone builds run from
+    # feature/hmx-downloader-ghost-mode-v2; everything else is rejected before
+    # the environment is requested.
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/feature/hmx-downloader-ghost-mode-v2'
     environment: apk-build
     env:
       EXPECTED_INSTAGRAM_PACKAGE: com.instagram.android

@@ -187,6 +187,19 @@ else
   bad "ci.yml must run scripts/ci/test_protected_methods.sh"
 fi
 
+# The build ref allowlist must stay exact: main plus the v2 milestone branch.
+if grep -qF "github.ref == 'refs/heads/main'" .github/workflows/apk.yml && \
+   grep -qF "github.ref == 'refs/heads/feature/hmx-downloader-ghost-mode-v2'" .github/workflows/apk.yml; then
+  note "ok: apk.yml build refs are the exact main + v2 allowlist"
+else
+  bad "apk.yml must allow exactly refs/heads/main and refs/heads/feature/hmx-downloader-ghost-mode-v2"
+fi
+if grep -qE "refs/heads/(feature|release)/\*|refs/heads/feature/\*\*" .github/workflows/apk.yml; then
+  bad "apk.yml build ref guard must not use a wildcard"
+else
+  note "ok: apk.yml build ref guard has no wildcard"
+fi
+
 if grep -qF 'bash "$VALIDATE_INPUT"' build.sh && \
    grep -qF 'bash "$VALIDATE_BUNDLE"' build.sh && \
    grep -qF 'bash "$VALIDATE_STANDALONE" --stage merge' build.sh && \

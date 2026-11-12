@@ -122,36 +122,53 @@ the phone is intentionally targeted.
 
 ## 5. Option B — cloud rebuild through the gated workflow
 
-The existing gated workflow is guarded with
-`if: github.ref == 'refs/heads/main'`, so it **cannot** build a non-main tree
-as-is. Three ways to handle this, in order of preference:
+The gated workflow runs from an **exact allowlist**:
 
-1. **Do nothing.** Use the published baseline artifact (section 1), which is
-   the recommended path.
-2. **Verify on a workstation** with Option A, with no push and no publish.
-3. **A throwaway CI branch**, only with explicit approval. The branch is based
-   on `a5bace0`; the *only* change is relaxing the job guard in
-   `.github/workflows/apk.yml` (no app code). Dispatch with `ref` set to that
-   branch and every publish input `false`. Delete the branch afterwards. Never
-   merge it, never push an artifact, never overwrite a release.
+```yaml
+if: >-
+  github.ref == 'refs/heads/main' ||
+  github.ref == 'refs/heads/feature/hmx-downloader-ghost-mode-v2'
+```
 
-Recommended dispatch payload for option 3 (no publish):
+and the `apk-build` environment must allow the same two refs. A wildcard or
+prefix is forbidden; `validate_repo.sh` fails if one appears. There is no local
+build path for milestones: the device is not a build machine.
+
+**Approved milestone path:**
+
+1. Push the milestone commit to `feature/hmx-downloader-ghost-mode-v2`.
+2. Dispatch `apk.yml` with `ref` set to that branch.
+3. Approve the `apk-build` deployment when the required reviewer prompt appears.
+4. Throwaway signing only; `allow_signature_bypass=false`.
+5. `publish_test_apk=true` creates a new `debug-test-<run>-<attempt>`
+   prerelease; it never overwrites an existing release.
+6. Attach the run URL, APK SHA-256 and report to the milestone record. Device
+   verification stays manual on the OPPO A38.
+
+Recommended dispatch payload:
 
 ```json
 {
-  "ref": "baseline/rebuild-<date>",
+  "ref": "feature/hmx-downloader-ghost-mode-v2",
   "inputs": {
     "instagram_version": "454.0.0.54.77",
     "base_apk_kind": "apkm",
     "clone": false,
     "allow_throwaway_signature": true,
     "allow_signature_bypass": false,
-    "publish_test_apk": false,
+    "publish_test_apk": true,
     "run_install_test": false,
     "disable_patches": ""
   }
 }
 ```
+
+`run_install_test=false` is deliberate: the hosted runner has no device. The
+install and feature checks happen on the OPPO A38.
+
+The old temporary-branch workaround is **retired**. Do not create a throwaway
+branch with a relaxed guard, and do not dispatch a build from any ref outside
+the allowlist.
 
 ---
 
