@@ -102,6 +102,9 @@ val downloaderCapturePatch = bytecodePatch(
             if (classDef.type.startsWith("Lcom/feurstagram/")) return@classDefForEach
             val mutableClass = mutableClassDefBy(classDef.type)
             mutableClass.methods.forEach { method ->
+                // A method without an implementation (abstract, native) has no
+                // instructions to read: Morphe's extension throws on those.
+                if (method.implementation == null) return@forEach
                 val callSites = mutableListOf<Pair<Int, Int>>()
                 val methodInstructions = method.instructions
                 methodInstructions.forEachIndexed { index, instruction ->
