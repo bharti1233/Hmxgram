@@ -44,6 +44,17 @@ public final class DownloaderCoreTest {
         run("history codec bounds and rejection",
                 DownloaderCoreTest::historyCodecBoundsAndRejection);
         run("task restore validation", DownloaderCoreTest::taskRestoreValidation);
+        run("shared stream selection", DownloaderCoreTest::sharedStreamSelection);
+        run("notification permission policy",
+                DownloaderCoreTest::notificationPermissionPolicy);
+        run("audio source policy", DownloaderCoreTest::audioSourcePolicy);
+        run("cancellation signal", DownloaderCoreTest::cancellationSignal);
+        runChecked("guarded copy cancellation", DownloaderCoreTest::guardedCopyCancellation);
+        run("pending work codec round trip",
+                DownloaderCoreTest::pendingWorkCodecRoundTrip);
+        run("pending work codec rejection",
+                DownloaderCoreTest::pendingWorkCodecRejection);
+        run("cache retention policy", DownloaderCoreTest::cacheRetentionPolicy);
 
         if (!failures.isEmpty()) {
             System.out.println();
@@ -1129,6 +1140,481 @@ public final class DownloaderCoreTest {
                 "attempts cannot exceed maxAttempts");
     }
 
+    private static void sharedStreamSelection() {
+        // EXTRA_STREAM only, single SEND.
+        eq(Arrays.asList("content://a/1"),
+                SharedStreams.select(Arrays.asList("content://a/1"), null),
+                "single extra stream");
+
+        // EXTRA_STREAM list, SEND_MULTIPLE.
+        eq(Arrays.asList("content://a/1", "content://a/2"),
+                SharedStreams.select(Arrays.asList("content://a/1", "content://a/2"),
+                        null),
+                "multiple extra streams");
+
+        // ClipData only: the sender put nothing in EXTRA_STREAM.
+        eq(Arrays.asList("content://a/9"),
+                SharedStreams.select(null, Arrays.asList("content://a/9")),
+                "clip data only");
+
+        // Same item in both sources: exactly one download.
+        eq(Arrays.asList("content://a/1"),
+                SharedStreams.select(Arrays.asList("content://a/1"),
+                        Arrays.asList("content://a/1")),
+                "duplicate across sources collapses");
+
+        // Different items in both sources: extras first, then clip extras.
+        eq(Arrays.asList("content://a/1", "content://a/2", "content://a/3"),
+                SharedStreams.select(Arrays.asList("content://a/1", "content://a/2"),
+                        Arrays.asList("content://a/3", "content://a/1")),
+                "union keeps extra order first");
+
+        // Blank and null entries are ignored, not counted.
+        eq(Arrays.asList("content://a/1"),
+                SharedStreams.select(Arrays.asList(null, "", "  ", "content://a/1"),
+                        Arrays.asList(null, "")),
+                "blank entries are ignored");
+
+        // Both sources empty: the caller reports "nothing to share".
+        eq(0, SharedStreams.select(null, null).size(), "no streams at all");
+
+        // The ten-item cap is enforced over the merged set, not per source.
+        List<String> many = new ArrayList<String>();
+        for (int i = 0; i < SharedStreams.MAX_ITEMS + 1; i++) {
+            many.add("content://a/" + i);
+        }
+        expect(IllegalArgumentException.class,
+                () -> SharedStreams.select(many, null),
+                "more than the cap is rejected");
+
+        List<String> half = new ArrayList<String>();
+        List<String> other = new ArrayList<String>();
+        for (int i = 0; i < SharedStreams.MAX_ITEMS; i++) {
+            half.add("content://a/" + i);
+            other.add("content://b/" + i);
+        }
+        expect(IllegalArgumentException.class,
+                () -> SharedStreams.select(half, other),
+                "the cap applies to the union");
+
+        eq(SharedStreams.MAX_ITEMS,
+                SharedStreams.select(half, Arrays.asList("content://a/0")).size(),
+                "the cap accepts a full set with a duplicate clip item");
+
+        // The result is immutable and stable.
+        List<String> result = SharedStreams.select(Arrays.asList("content://a/1"),
+                Arrays.asList("content://a/2"));
+        expect(UnsupportedOperationException.class, () -> result.add("x"),
+                "the selection is unmodifiable");
+    }
+
+    private static void notificationPermissionPolicy() {
+        eq(NotificationPermissionPolicy.Decision.SKIP,
+                NotificationPermissionPolicy.decide(
+                        NotificationPermissionPolicy.ANDROID_13 - 1, false, false),
+                "before Android 13 there is nothing to ask");
+
+        eq(NotificationPermissionPolicy.Decision.SKIP,
+                NotificationPermissionPolicy.decide(
+                        NotificationPermissionPolicy.ANDROID_13, true, false),
+                "granted permission needs no prompt");
+        eq(NotificationPermissionPolicy.Decision.SKIP,
+                NotificationPermissionPolicy.decide(
+                        NotificationPermissionPolicy.ANDROID_13 + 10, true, true),
+                "a later grant needs no prompt");
+
+        eq(NotificationPermissionPolicy.Decision.REQUEST,
+                NotificationPermissionPolicy.decide(
+                        NotificationPermissionPolicy.ANDROID_13, false, false),
+                "a fresh install asks once");
+
+        eq(NotificationPermissionPolicy.Decision.SKIP,
+                NotificationPermissionPolicy.decide(
+                        NotificationPermissionPolicy.ANDROID_13, false, true),
+                "one prompt per install, never again");
+        eq(NotificationPermissionPolicy.Decision.SKIP,
+                NotificationPermissionPolicy.decide(
+                        NotificationPermissionPolicy.ANDROID_13 + 10, false, true),
+                "denial on a newer Android is still respected");
+
+        eq(NotificationPermissionPolicy.Decision.SKIP,
+                NotificationPermissionPolicy.decide(0, false, false),
+                "an unknown API level defaults to the pre-13 behaviour");
+    }
+
+    private static void audioSourcePolicy() {
+        eq(AudioSourcePolicy.Route.DIRECT_AUDIO,
+                AudioSourcePolicy.route("audio/mp4"), "audio share is direct");
+        eq(AudioSourcePolicy.Route.DIRECT_AUDIO,
+                AudioSourcePolicy.route("AUDIO/MPEG; charset=utf-8"),
+                "audio matching is case-insensitive and ignores parameters");
+
+        eq(AudioSourcePolicy.Route.EXTRACT_FROM_VIDEO,
+                AudioSourcePolicy.route("video/mp4"), "mp4 video is extractable");
+        eq(AudioSourcePolicy.Route.EXTRACT_FROM_VIDEO,
+                AudioSourcePolicy.route("Video/3GPP"), "3gp video is extractable");
+        eq(AudioSourcePolicy.Route.EXTRACT_FROM_VIDEO,
+                AudioSourcePolicy.route("video/x-m4v"), "m4v video is extractable");
+        eq(AudioSourcePolicy.Route.EXTRACT_FROM_VIDEO,
+                AudioSourcePolicy.route("video/quicktime"), "mov video is extractable");
+
+        // Honest refusals: these containers cannot be muxed to M4A reliably.
+        eq(AudioSourcePolicy.Route.UNSUPPORTED, AudioSourcePolicy.route("video/webm"),
+                "webm is not extractable");
+        eq(AudioSourcePolicy.Route.UNSUPPORTED, AudioSourcePolicy.route("video/x-matroska"),
+                "mkv is not extractable");
+        eq(AudioSourcePolicy.Route.UNSUPPORTED, AudioSourcePolicy.route("video/avi"),
+                "avi is not extractable");
+        eq(AudioSourcePolicy.Route.UNSUPPORTED, AudioSourcePolicy.route("image/jpeg"),
+                "images cannot become audio");
+        eq(AudioSourcePolicy.Route.UNSUPPORTED, AudioSourcePolicy.route(null),
+                "a missing MIME is unsupported");
+        eq(AudioSourcePolicy.Route.UNSUPPORTED, AudioSourcePolicy.route("  "),
+                "a blank MIME is unsupported");
+
+        check(AudioSourcePolicy.isSupportedVideoContainer("video/mp4"),
+                "supported container helper");
+        check(!AudioSourcePolicy.isSupportedVideoContainer("video/webm"),
+                "unsupported container helper");
+        check(AudioSourcePolicy.isDirectAudio("audio/mpeg"),
+                "direct audio helper");
+        check(!AudioSourcePolicy.isDirectAudio("video/mp4"),
+                "video is not direct audio");
+    }
+
+    private static void cancellationSignal() {
+        CancellationSignal signal = new CancellationSignal();
+        check(!signal.isCancelled(), "a fresh signal is not cancelled");
+        try {
+            signal.throwIfCancelled();
+        } catch (DownloadCancelledException e) {
+            throw new AssertionError("a fresh signal must not throw");
+        }
+
+        signal.cancel();
+        check(signal.isCancelled(), "cancel is sticky");
+        try {
+            signal.throwIfCancelled();
+            throw new AssertionError("a cancelled signal must throw");
+        } catch (DownloadCancelledException expected) {
+            // Expected: the checkpoint rejects the cancelled signal.
+        }
+        signal.cancel();
+        check(signal.isCancelled(), "cancelling twice is harmless");
+    }
+
+    private static void guardedCopyCancellation() throws Exception {
+        byte[] payload = new byte[GuardedCopy.BUFFER_SIZE + 1234];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = (byte) i;
+        }
+
+        // Success: no rollback, full byte count.
+        java.io.ByteArrayInputStream in = new java.io.ByteArrayInputStream(payload);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        int[] discards = new int[1];
+        long bytes = GuardedCopy.copy(in, out, new CancellationSignal(),
+                () -> discards[0]++);
+        eq((long) payload.length, bytes, "success copies every byte");
+        eq(0, discards[0], "success never rolls back");
+        check(java.util.Arrays.equals(payload, out.toByteArray()),
+                "success copies the exact bytes");
+
+        // Cancellation mid-copy: rollback runs once and the exception is typed.
+        CancellationSignal cancelledMidCopy = new CancellationSignal();
+        java.io.InputStream cancelling = new java.io.InputStream() {
+            private int reads;
+            @Override
+            public int read() {
+                return 0;
+            }
+            @Override
+            public int read(byte[] buffer, int off, int len) {
+                reads++;
+                if (reads == 2) {
+                    cancelledMidCopy.cancel();
+                }
+                if (reads > 2) {
+                    return -1;
+                }
+                return Math.min(len, 100);
+            }
+        };
+        java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
+        try {
+            GuardedCopy.copy(cancelling, sink, cancelledMidCopy, () -> discards[0]++);
+            throw new AssertionError("mid-copy cancellation must fail the copy");
+        } catch (DownloadCancelledException expected) {
+            eq(1, discards[0], "cancelled copy rolls back exactly once");
+        }
+
+        // I/O failure also rolls back, exactly once.
+        java.io.InputStream failing = new java.io.InputStream() {
+            private int reads;
+            @Override
+            public int read() {
+                return 0;
+            }
+            @Override
+            public int read(byte[] buffer, int off, int len) throws java.io.IOException {
+                reads++;
+                if (reads == 1) {
+                    return Math.min(len, 50);
+                }
+                throw new java.io.IOException("source gone");
+            }
+        };
+        java.io.ByteArrayOutputStream lost = new java.io.ByteArrayOutputStream();
+        try {
+            GuardedCopy.copy(failing, lost, new CancellationSignal(),
+                    () -> discards[0]++);
+            throw new AssertionError("an I/O failure must fail the copy");
+        } catch (java.io.IOException expected) {
+            eq(2, discards[0], "a failed copy rolls back exactly once");
+        }
+
+        // Argument validation.
+        expectChecked(IllegalArgumentException.class,
+                () -> GuardedCopy.copy(null, out, new CancellationSignal(), null),
+                "copy needs an input");
+        expectChecked(IllegalArgumentException.class,
+                () -> GuardedCopy.copy(in, null, new CancellationSignal(), null),
+                "copy needs an output");
+        expectChecked(IllegalArgumentException.class,
+                () -> GuardedCopy.copy(in, out, null, null),
+                "copy needs a signal");
+
+        // A rollback that fails must not mask the original failure.
+        java.io.ByteArrayOutputStream second = new java.io.ByteArrayOutputStream();
+        try {
+            GuardedCopy.copy(failing, second, new CancellationSignal(), () -> {
+                throw new IllegalStateException("rollback exploded");
+            });
+            throw new AssertionError("an I/O failure must fail the copy");
+        } catch (java.io.IOException expected) {
+            check(expected.getMessage() != null
+                            && !expected.getMessage().contains("rollback"),
+                    "the rollback failure is not the reported error");
+        }
+    }
+
+    private static void pendingWorkCodecRoundTrip() {
+        MediaItem photo = new MediaItem.Builder(DownloadKind.PHOTO)
+                .id("share-abc123")
+                .url("content://com.example.hmxshare/abc123.jpg")
+                .mimeType("image/jpeg")
+                .sizeBytes(4096L)
+                .owner("share")
+                .size(720, 1280)
+                .build();
+        MediaItem video = new MediaItem.Builder(DownloadKind.VIDEO)
+                .id("share-def456")
+                .url("content://com.example.hmxshare/def456.mp4")
+                .mimeType("video/mp4")
+                .owner("share")
+                .expiresAtEpochMs(42L)
+                .build();
+
+        String encoded = PendingWorkCodec.encode(Arrays.asList(photo, video));
+        check(encoded.startsWith("hmx-pending-work\t1\n"), "versioned header");
+        check(!encoded.contains("\r"), "ledger uses only LF line endings");
+
+        List<MediaItem> decoded = PendingWorkCodec.decode(encoded);
+        eq(2, decoded.size(), "two entries round trip");
+        eq(photo.id(), decoded.get(0).id(), "id round trips");
+        eq(DownloadKind.PHOTO, decoded.get(0).kind(), "kind round trips");
+        eq(photo.url(), decoded.get(0).url(), "full URL round trips");
+        eq(photo.mimeType(), decoded.get(0).mimeType(), "MIME round trips");
+        eq(photo.sizeBytes(), decoded.get(0).sizeBytes(), "size round trips");
+        eq(photo.owner(), decoded.get(0).owner(), "owner round trips");
+        eq(photo.width(), decoded.get(0).width(), "width round trips");
+        eq(photo.height(), decoded.get(0).height(), "height round trips");
+        eq(0L, decoded.get(0).expiresAtEpochMs(), "missing expiry round trips");
+        eq(DownloadKind.VIDEO, decoded.get(1).kind(), "second kind round trips");
+        eq(42L, decoded.get(1).expiresAtEpochMs(), "expiry round trips");
+
+        eq(0, PendingWorkCodec.decode(
+                PendingWorkCodec.encode(new ArrayList<MediaItem>())).size(),
+                "an empty ledger round trips");
+
+        // The ledger keeps the full URL on purpose: an accepted share URI has
+        // no credentials, and this is process-local resume data.
+        check(encoded.contains("def456"), "the ledger keeps the resumable URL");
+
+        // Hostile metadata is escaped.
+        MediaItem noisy = new MediaItem.Builder(DownloadKind.PHOTO)
+                .id("noisy\tid\nwith unicode \u00e9")
+                .url("content://a/b?x=1&y=2")
+                .owner("Jean\tH\u00e9rail")
+                .mimeType("image/jpeg")
+                .build();
+        List<MediaItem> noisyCopy = PendingWorkCodec.decode(
+                PendingWorkCodec.encode(Arrays.asList(noisy)));
+        eq(noisy.id(), noisyCopy.get(0).id(), "tab/newline/unicode id round trips");
+        eq(noisy.owner(), noisyCopy.get(0).owner(), "unicode owner round trips");
+        eq(noisy.url(), noisyCopy.get(0).url(), "query survives in the ledger");
+    }
+
+    private static void pendingWorkCodecRejection() {
+        MediaItem item = new MediaItem.Builder(DownloadKind.PHOTO)
+                .id("m1")
+                .url("https://cdn.example/m1.jpg")
+                .owner("alice")
+                .build();
+        String oneLine = PendingWorkCodec.encode(Arrays.asList(item));
+        String header = "hmx-pending-work\t1\n";
+        String itemLine = oneLine.substring(header.length());
+
+        List<MediaItem> many = new ArrayList<MediaItem>();
+        for (int i = 0; i < PendingWorkCodec.MAX_ENTRIES + 1; i++) {
+            many.add(new MediaItem.Builder(DownloadKind.PHOTO)
+                    .id("m" + i)
+                    .url("https://cdn.example/m" + i + ".jpg")
+                    .owner("alice")
+                    .build());
+        }
+        eq(PendingWorkCodec.MAX_ENTRIES,
+                PendingWorkCodec.decode(PendingWorkCodec.encode(many)).size(),
+                "encoding caps at the documented ledger size");
+
+        StringBuilder tooMany = new StringBuilder(header);
+        for (int i = 0; i < PendingWorkCodec.MAX_ENTRIES + 1; i++) {
+            tooMany.append(itemLine);
+        }
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(tooMany.toString()),
+                "decoding more than the cap is rejected");
+
+        StringBuilder duplicate = new StringBuilder(header);
+        duplicate.append(itemLine).append(itemLine);
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(duplicate.toString()),
+                "duplicate item ids are rejected");
+
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(null), "null ledger rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(""), "empty ledger rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode("hmx-pending-work\t2\n"),
+                "unknown version rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode("other\t1\n"),
+                "unknown header rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(header + "item\n"),
+                "truncated entry rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(header + "\n"),
+                "empty entry line rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(header + "not-an-item" + itemLine),
+                "missing item marker rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(
+                        repeat("x", PendingWorkCodec.MAX_ENCODED_LENGTH + 1)),
+                "oversized ledger rejected");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.encode(Arrays.asList((MediaItem) null)),
+                "null items rejected");
+
+        // A carousel container is never pending work.
+        String badKind = itemLine.replace("\tPHOTO\t", "\tCAROUSEL\t");
+        check(!badKind.equals(itemLine), "test fixture changed the kind");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(header + badKind),
+                "carousel containers are rejected");
+
+        String badKindValue = itemLine.replace("\tPHOTO\t", "\tREEL\t");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(header + badKindValue),
+                "unknown kinds are rejected");
+
+        String badSize = itemLine.replace("\t-1\t", "\tnot-a-number\t");
+        check(!badSize.equals(itemLine), "test fixture changed the size");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(header + badSize),
+                "invalid sizes are rejected");
+
+        String badUrl = itemLine.replace(
+                "\thttps%3A%2F%2Fcdn.example%2Fm1.jpg\t",
+                "\tfile%3A%2F%2Fetc%2Fpasswd\t");
+        check(!badUrl.equals(itemLine), "test fixture changed the URL");
+        expect(IllegalArgumentException.class,
+                () -> PendingWorkCodec.decode(header + badUrl),
+                "non-downloadable URLs are rejected");
+    }
+
+    private static void cacheRetentionPolicy() {
+        long now = 100_000L;
+        long grace = 60_000L;
+        List<CacheRetentionPolicy.Entry> entries = new ArrayList<CacheRetentionPolicy.Entry>();
+
+        // Helpers for this test: fresh (inside grace) and stale (past grace).
+        CacheRetentionPolicy.Entry fresh = new CacheRetentionPolicy.Entry(
+                "fresh", 10L, now - 30_000L, false);
+        CacheRetentionPolicy.Entry stale = new CacheRetentionPolicy.Entry(
+                "stale", 10L, now - grace - 1_000L, false);
+        CacheRetentionPolicy.Entry active = new CacheRetentionPolicy.Entry(
+                "active", 10L, now - grace - 5_000L, true);
+
+        entries.add(active);
+        entries.add(fresh);
+        entries.add(stale);
+        eq(Arrays.asList("stale"),
+                CacheRetentionPolicy.selectEvictions(entries, now, grace,
+                        1_000_000L, 32),
+                "only past-grace unreferenced files are evicted");
+        check(!CacheRetentionPolicy.selectEvictions(entries, now, grace, 1_000_000L, 32)
+                        .contains("active"),
+                "an active task's file is never evicted, whatever its age");
+
+        // File-count budget: evict oldest first until within the limit.
+        List<CacheRetentionPolicy.Entry> many = new ArrayList<CacheRetentionPolicy.Entry>();
+        for (int i = 0; i < 5; i++) {
+            many.add(new CacheRetentionPolicy.Entry("f" + i, 10L, now - (10_000L * (5 - i)),
+                    false));
+        }
+        eq(Arrays.asList("f0", "f1"),
+                CacheRetentionPolicy.selectEvictions(many, now, 3_600_000L,
+                        1_000_000L, 3),
+                "count budget evicts the oldest first");
+
+        // Byte budget: keep the newest, drop the oldest until under the cap.
+        List<CacheRetentionPolicy.Entry> heavy = new ArrayList<CacheRetentionPolicy.Entry>();
+        heavy.add(new CacheRetentionPolicy.Entry("a", 100L, now - 50_000L, false));
+        heavy.add(new CacheRetentionPolicy.Entry("b", 100L, now - 40_000L, false));
+        heavy.add(new CacheRetentionPolicy.Entry("c", 100L, now - 30_000L, false));
+        eq(Arrays.asList("a"),
+                CacheRetentionPolicy.selectEvictions(heavy, now, 3_600_000L,
+                        250L, 32),
+                "byte budget evicts oldest until under the cap");
+
+        // Defaults compile and behave: nothing inside grace is evicted.
+        eq(0, CacheRetentionPolicy.selectEvictions(
+                Arrays.asList(fresh), now).size(),
+                "defaults keep fresh files");
+
+        expect(IllegalArgumentException.class,
+                () -> CacheRetentionPolicy.selectEvictions(null, now),
+                "null entries rejected");
+        expect(IllegalArgumentException.class,
+                () -> CacheRetentionPolicy.selectEvictions(entries, now, -1L,
+                        100L, 10),
+                "negative age rejected");
+        expect(IllegalArgumentException.class,
+                () -> CacheRetentionPolicy.selectEvictions(entries, now, 100L,
+                        -1L, 10),
+                "negative bytes rejected");
+        expect(IllegalArgumentException.class,
+                () -> CacheRetentionPolicy.selectEvictions(entries, now, 100L,
+                        100L, -1),
+                "negative files rejected");
+        expect(IllegalArgumentException.class,
+                () -> new CacheRetentionPolicy.Entry(" ", 1L, 0L, false),
+                "blank names rejected");
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private static MediaItem item(String id) {
@@ -1184,6 +1670,23 @@ public final class DownloaderCoreTest {
         }
     }
 
+    /** Same as {@link #run(String, Runnable)} for tests that declare I/O. */
+    private static void runChecked(String name, ThrowingTest test) {
+        run(name, () -> {
+            try {
+                test.run();
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private interface ThrowingTest {
+        void run() throws Exception;
+    }
+
     private static void check(boolean condition, String message) {
         if (!condition) {
             throw new AssertionError(message);
@@ -1199,6 +1702,20 @@ public final class DownloaderCoreTest {
 
     private static <T extends Throwable> void expect(
             Class<T> type, Runnable action, String message) {
+        try {
+            action.run();
+        } catch (Throwable thrown) {
+            if (type.isInstance(thrown)) {
+                return;
+            }
+            throw new AssertionError(message + " (wrong exception: " + thrown + ')');
+        }
+        throw new AssertionError(message + " (no exception thrown)");
+    }
+
+    /** Same as {@link #expect(Class, Runnable, String)} for I/O-declaring calls. */
+    private static <T extends Throwable> void expectChecked(
+            Class<T> type, ThrowingTest action, String message) {
         try {
             action.run();
         } catch (Throwable thrown) {
