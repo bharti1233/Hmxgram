@@ -56,7 +56,13 @@ final class ShareImporter {
 
         String extension = MediaNaming.extensionForMime(payload.mimeType);
         if ("bin".equals(extension)) {
-            extension = payload.mimeType.startsWith("video/") ? "mp4" : "jpg";
+            if (payload.mimeType.startsWith("video/")) {
+                extension = "mp4";
+            } else if (payload.mimeType.startsWith("audio/")) {
+                extension = "m4a";
+            } else {
+                extension = "jpg";
+            }
         }
         File target = File.createTempFile("share-", "." + extension, directory);
         MessageDigest digest = sha256();
@@ -94,9 +100,16 @@ final class ShareImporter {
         }
 
         String id = "share-" + hex(digest.digest());
-        DownloadKind kind = payload.mimeType.startsWith("video/")
-                ? DownloadKind.VIDEO
-                : DownloadKind.PHOTO;
+        DownloadKind kind;
+        if (payload.mimeType.startsWith("video/")) {
+            kind = DownloadKind.VIDEO;
+        } else if (payload.mimeType.startsWith("audio/")) {
+            // An audio share is saved as audio; extraction from a video is a
+            // separate, explicit decision taken by the worker's policy.
+            kind = DownloadKind.AUDIO;
+        } else {
+            kind = DownloadKind.PHOTO;
+        }
         Uri uri = ShareCacheProvider.uriFor(context, target);
         MediaItem item = new MediaItem.Builder(kind)
                 .id(id)

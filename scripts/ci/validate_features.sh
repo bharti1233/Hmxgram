@@ -107,7 +107,10 @@ if [ -d "$ANDROID_DIR" ]; then
     ShareTargetActivity.java \
     ShareIntentParser.java \
     ShareImporter.java \
-    ShareCacheProvider.java
+    ShareCacheProvider.java \
+    DownloadService.java \
+    PendingWorkStore.java \
+    ShareCacheJanitor.java
   do
     if [ -f "$ANDROID_DIR/$file" ]; then
       note "ok: downloader/android/$file"
@@ -140,7 +143,10 @@ if [ -f "$SHARE_PATCH" ]; then
     'android.intent.action.SEND' \
     'android.intent.action.SEND_MULTIPLE' \
     'ShareCacheProvider' \
-    'android.permission.POST_NOTIFICATIONS'
+    'DownloadService' \
+    'android.permission.POST_NOTIFICATIONS' \
+    'android.permission.FOREGROUND_SERVICE' \
+    'android.permission.FOREGROUND_SERVICE_DATA_SYNC'
   do
     if grep -qF "$needle" "$SHARE_PATCH"; then
       note "ok: share target patch contains $needle"

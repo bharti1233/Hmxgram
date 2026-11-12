@@ -18,13 +18,16 @@ import android.os.Build;
  * content contains only counts and the word "download": never a URL, a token,
  * a cookie, an account name or an Instagram internal.
  *
- * <p>If the user denied notifications (Android 13+), every call is a no-op and
- * the save still completes.
+ * <p>If the user denied notifications (Android 13+), drawer updates are
+ * skipped and the save still completes. The share activity asks for the
+ * permission once per install; denial is respected and never re-prompted.
+ * The foreground service that keeps long downloads alive does not depend on
+ * the permission.
  */
 final class DownloadNotifier {
 
-    private static final String CHANNEL_ID = "hmx_downloads";
-    private static final int PROGRESS_ID = 4101;
+    static final String CHANNEL_ID = "hmx_downloads";
+    static final int PROGRESS_ID = 4101;
     private static final int RESULT_ID = 4102;
 
     private final Context context;
@@ -35,6 +38,28 @@ final class DownloadNotifier {
         this.manager = (NotificationManager)
                 this.context.getSystemService(Context.NOTIFICATION_SERVICE);
         createChannel();
+    }
+
+    /**
+     * Builds the notification the foreground service publishes. Unlike the
+     * drawer updates, this never gates on the Android 13 permission: the
+     * service itself is legal without it, and Android hides the drawer entry
+     * until the permission is granted.
+     */
+    Notification foregroundNotification() {
+        Notification.Builder builder = newBuilder();
+        builder.setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentTitle("HMX Insta")
+                .setContentText("Saving items")
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setProgress(0, 0, true)
+                .setCategory(Notification.CATEGORY_PROGRESS);
+        Intent launch = launchIntent();
+        if (launch != null) {
+            builder.setContentIntent(pendingIntent(launch));
+        }
+        return builder.build();
     }
 
     void notifyProgress(int active) {
