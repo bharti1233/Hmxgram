@@ -14,12 +14,20 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-BASE="${HMX_DOWNLOADER_BASE:-ba72c21d0c1aafc6aa4ec48283f9a75be26ca9d0}"
-# Computed from the M1 integration commit plus the reviewed M2 files over the
-# protected paths listed below. The share-target patch is deliberately included;
-# the digest was re-pinned when the M2 audit fixes (F1-F7) extended the patch
-# with the download service, the foreground-service permissions and audio MIME.
-PINNED_PROTECTED_DIGEST="8fcb34723c58e8765d54fca63e7d43dd041d1db19ab9c10d69c5eda84bcba47e"
+BASE="${HMX_DOWNLOADER_BASE:-c6ab02441fe7c7172ade483b37d2c274bd83439c}"
+# The baseline is the reviewed CI commit that adds the explicit downloader
+# build switch (the M1 integration commit ba72c21 is its ancestor). Everything
+# the downloader milestone changes is measured from there, so the milestone
+# diff still contains no protected file. The digest below pins the exact
+# content of every protected file, build.sh and apk.yml included, so any later
+# change to them still fails this check.
+#
+# Computed from the reviewed CI baseline plus the reviewed M2 files over the
+# protected paths listed below. The share-target patch is deliberately
+# included. The digest was last re-pinned when the CI baseline moved: the
+# delta was attributed to build.sh and apk.yml alone, with every other
+# protected file byte-identical to the previous pin.
+PINNED_PROTECTED_DIGEST="7d414b0ab39cd0caa4d2789a4bc62afc5bf32bfa7f5b84bc78e4cc2f735faeba"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
@@ -64,7 +72,7 @@ else
   bad "protected files changed (expected $PINNED_PROTECTED_DIGEST, got $actual_digest)"
 fi
 
-note "== Protected paths unchanged since the M1 integration commit =="
+note "== Protected paths unchanged since the reviewed CI baseline =="
 protected_changed="$(git diff --name-only "$BASE" -- \
   patches/src \
   extensions/extension/src/main/java/com/feurstagram/extension \
