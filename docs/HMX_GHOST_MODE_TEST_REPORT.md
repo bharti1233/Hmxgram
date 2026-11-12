@@ -68,6 +68,10 @@ Every row says what was actually run. A test that was not executed is marked
 
 ## 3. Honest summary
 
+The hook was **proved in a real build**: the gated run 43168216595 applied
+*HMX ghost mode*, and that patch fails closed when Instagram's network anchor is
+not found, so a passing build means the hook attached to it.
+
 The ghost-mode **rules** are implemented and tested: which control is active,
 which request is dropped, which control is never active because Instagram
 decides it on the server, and that the master switch cannot turn on something
