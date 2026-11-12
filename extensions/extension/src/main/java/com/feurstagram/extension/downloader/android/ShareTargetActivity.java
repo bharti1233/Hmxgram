@@ -2,7 +2,9 @@ package com.feurstagram.extension.downloader.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -11,6 +13,8 @@ import android.widget.Toast;
 
 import com.feurstagram.extension.downloader.core.DownloadQueue;
 import com.feurstagram.extension.downloader.core.NotificationPermissionPolicy;
+import com.feurstagram.extension.ghost.GhostFeature;
+import com.feurstagram.extension.ghost.android.GhostState;
 
 import java.io.IOException;
 import java.util.List;
@@ -135,6 +139,41 @@ public final class ShareTargetActivity extends Activity {
             showMessage("HMX Insta is not ready to receive shares");
             return;
         }
+        if (GhostState.isActiveSafely(app, GhostFeature.CONFIRM_BEFORE_SAVING)) {
+            // The Ghost Mode control asks before a shared item is saved.
+            confirmThenImport(payloads);
+            return;
+        }
+        startImport(payloads, app, executor);
+    }
+
+    /** Asks the user before the shared items are saved. */
+    private void confirmThenImport(final List<ShareIntentParser.Payload> payloads) {
+        final Context app = getApplicationContext();
+        final ExecutorService executor = importer;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                new AlertDialog.Builder(ShareTargetActivity.this)
+                        .setTitle("Save to the gallery?")
+                        .setMessage(payloads.size() == 1
+                                ? "Save this item to the gallery?"
+                                : "Save " + payloads.size() + " items to the gallery?")
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Save",
+                                new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        startImport(payloads, app, executor);
+                                    }
+                                })
+                        .show();
+            }
+        });
+    }
+
+    private void startImport(final List<ShareIntentParser.Payload> payloads,
+            final Context app, final ExecutorService executor) {
         try {
             executor.execute(new Runnable() {
                 @Override

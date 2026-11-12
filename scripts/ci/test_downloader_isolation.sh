@@ -14,21 +14,24 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-BASE="${HMX_DOWNLOADER_BASE:-6463392c4913956bdf25aa5afe11ebc0f20648e1}"
+BASE="${HMX_DOWNLOADER_BASE:-e7074eb789c0cc66c0ce0cd946d52ca5519522e9}"
 # The baseline is the reviewed CI commit that lets the gated build apply the
-# downloader's own patches (the M1 integration commit ba72c21 is its
-# ancestor). Everything the downloader milestones change is measured from
+# downloader's own patches and the privacy screen (the M1 integration commit
+# ba72c21 is its ancestor). Everything the downloader milestones change is measured from
 # there, so the milestone diff still contains no protected file. The digest
 # below pins the exact content of every protected file, build.sh and apk.yml
 # included, so any later change to them still fails this check.
 #
-# Computed from the reviewed CI baseline plus the reviewed M2/M3/M4 files over
-# the protected paths listed below. The share-target patch is deliberately
-# included. The digest was last re-pinned when the CI baseline moved to the
-# commit that lets the build apply the downloader's second patch: the delta
-# was attributed to build.sh and apk.yml alone, with every other protected
-# file byte-identical to the previous pin.
-PINNED_PROTECTED_DIGEST="984d63eb97e9a20a7f2ae6b5f3c11d3b4467b24786c1b9e1fd101e5faaa25167"
+# Computed from the reviewed CI baseline plus the reviewed M2/M3/M4/M5 files
+# over the protected paths listed below. The share-target patch is deliberately
+# included. The digest was last re-pinned for the M5 ghost-mode work: the
+# delta was attributed to the new ghost sources and their patch, with every
+# other protected file byte-identical to the previous pin.
+#
+# The ghost sources are inside the digest on purpose: a privacy control that
+# is changed after its review must fail this check like any other protected
+# file.
+PINNED_PROTECTED_DIGEST="f11958d55461408266fc1d5c69bb0bcccd61ac20df1df7605631c7bde499f863"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
@@ -85,7 +88,9 @@ protected_changed="$(git diff --name-only "$BASE" -- \
   build.sh \
   .github/workflows/apk.yml \
   | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/downloader/' \
-  | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/downloader/' || true)"
+  | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/ghost/' \
+  | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/downloader/' \
+  | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/ghost/' || true)"
 if [ -z "$protected_changed" ]; then
   note "ok: no protected path changed"
 else
@@ -139,7 +144,11 @@ while IFS= read -r path; do
     extensions/extension/src/main/java/com/feurstagram/extension/downloader/core/*) ;;
     extensions/extension/src/main/java/com/feurstagram/extension/downloader/android/*) ;;
     extensions/extension/src/test/java/com/feurstagram/extension/downloader/core/*) ;;
+    extensions/extension/src/main/java/com/feurstagram/extension/ghost/*) ;;
+    extensions/extension/src/main/java/com/feurstagram/extension/ghost/android/*) ;;
+    extensions/extension/src/test/java/com/feurstagram/extension/ghost/*) ;;
     patches/src/main/kotlin/com/feurstagram/patches/downloader/*) ;;
+    patches/src/main/kotlin/com/feurstagram/patches/ghost/*) ;;
     scripts/ci/test_downloader_logic.sh) ;;
     scripts/ci/test_downloader_isolation.sh) ;;
     scripts/ci/test_m1_isolation.sh) ;;
@@ -151,6 +160,7 @@ while IFS= read -r path; do
     docs/HMX_INSTA_M2_DEVICE_CHECKLIST.md) ;;
     docs/HMX_INSTA_M3_DOWNLOADER_UI.md) ;;
     docs/HMX_INSTA_M4_INSTAGRAM_MEDIA.md) ;;
+    docs/HMX_INSTA_M5_GHOST_MODE.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;

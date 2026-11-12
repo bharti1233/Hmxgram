@@ -65,6 +65,11 @@ on:
         required: true
         default: false
         type: boolean
+      enable_ghost:
+        description: Apply the default-off "Ghost Mode settings" patch (the privacy screen). The patch report must then list it
+        required: true
+        default: false
+        type: boolean
       run_install_test:
         description: Run an adb install smoke test on an attached arm64 API 35 device (GitHub-hosted runners have none; leave false and the device test is reported as pending)
         required: true
@@ -108,6 +113,7 @@ jobs:
       # switches to this list only when enable_downloader is true, so an
       # ordinary build still has to pass the unchanged 14-patch expectation.
       EXPECTED_PATCHES_WITH_DOWNLOADER: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer'
+      EXPECTED_PATCHES_WITH_GHOST: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer,Ghost Mode settings'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -163,6 +169,7 @@ jobs:
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
           PUBLISH_TEST_APK: ${{ inputs.publish_test_apk }}
           ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
+          ENABLE_GHOST: ${{ inputs.enable_ghost }}
           DIST_TOKEN: ${{ secrets.DIST_TOKEN }}
           HAS_RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
@@ -248,6 +255,11 @@ jobs:
             echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_DOWNLOADER" >> "$GITHUB_ENV"
             echo "MIN_APPLIED_PATCHES=16" >> "$GITHUB_ENV"
             echo "::notice::The downloader patches are enabled for this build."
+          fi
+          if [ "$ENABLE_GHOST" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_GHOST" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=17" >> "$GITHUB_ENV"
+            echo "::notice::The Ghost Mode settings patch is enabled for this build."
           fi
 
       - name: Enforce least-privilege private-asset token
@@ -463,6 +475,7 @@ jobs:
           CLONE: ${{ inputs.clone }}
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
           ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
+          ENABLE_GHOST: ${{ inputs.enable_ghost }}
           DISABLE_PATCHES: ${{ inputs.disable_patches }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
@@ -479,6 +492,9 @@ jobs:
           fi
           if [ "${ENABLE_DOWNLOADER:-false}" = "true" ]; then
             args+=(--downloader)
+          fi
+          if [ "${ENABLE_GHOST:-false}" = "true" ]; then
+            args+=(--ghost)
           fi
           bash ./build.sh "${args[@]}" 2>&1 | tee -a "$RUNNER_TEMP/apk-build.log"
 
@@ -614,6 +630,7 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.instagram_version }}
           CLONE: ${{ inputs.clone }}
           ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
+          ENABLE_GHOST: ${{ inputs.enable_ghost }}
           EXPECTED_PACKAGE: com.instagram.android
         run: |
           set -euo pipefail
@@ -640,6 +657,10 @@ jobs:
               echo "::error::The patch report does not list the Downloader share target patch"; exit 1; }
             grep -qF 'Downloader media observer' build/patch-report.json || {
               echo "::error::The patch report does not list the Downloader media observer patch"; exit 1; }
+          fi
+          if [ "${ENABLE_GHOST:-false}" = "true" ]; then
+            grep -qF 'Ghost Mode settings' build/patch-report.json || {
+              echo "::error::The patch report does not list the Ghost Mode settings patch"; exit 1; }
           fi
 
           # Verify the exact bytes and signer against the locally generated build report.
