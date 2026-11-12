@@ -220,3 +220,41 @@ the exact digest recorded above and five debug releases remain present.
 | Baseline build plan prepared | ✅ `HMX_INSTA_BASELINE_BUILD_PLAN.md` |
 | Downloader/Ghost Mode implemented | ❌ intentionally not started (M1+) |
 | Anything built, published or merged | ❌ none |
+
+---
+
+## 8. Independent re-verification (backup-publish stage)
+
+The artifact was downloaded again from the private release into a fresh path
+and checked without relying on the M0 report.
+
+| Check | Result |
+| --- | --- |
+| Fresh download | `hmx-insta-454.0.0.54.77-test.apk`, 164,081,474 bytes |
+| SHA-256 | `6de31b8eb9845ccd27cdd5ec6d140feaafbc943cc04c26481cde4594a7b0df65` — **match** |
+| Package / version / code | `com.instagram.android` · 454.0.0.54.77 · `386014712` |
+| Label | `HMX Insta` |
+| SDK | min 28, target 37 (device API 35) |
+| Native code | `arm64-v8a` (15 libraries) |
+| Density buckets | 160 / 240 / 320 / 480 / 640 / 65534 / 65535 |
+| Signer | `CN=Morphe`, SHA-256 `d9808bf36c4e85d8ec5a3f7d34f015f5b234a2e1be32d912379147183efeda1a`, scheme **v2** |
+| ZIP integrity | `unzip -t` OK — **18,365 entries** tested, no CRC error |
+| Alignment / signature | `zipalign -c -p 4` OK; `apksigner verify` OK |
+| Required split metadata | **absent**: `isSplitRequired`, `requiredSplitTypes`, `splitTypes`, `splitName`, `uses-split`, `com.android.vending.splits`, `android:split` |
+| Nested split APKs | none |
+| Dex | 32 files, all parse with `dexdump`, 0 failures |
+| Resources | `resources.arsc` parses; 14,453 `res/` entries |
+| Assets | 3,152 entries |
+| Launcher | exactly one enabled `MAIN`+`LAUNCHER` component: `com.instagram.android.activity.MainTabActivity` → `com.instagram.mainactivity.InstagramMainActivity` |
+| Build report link | CI artifact `apk-build-report` digest equals the downloaded APK digest; 14 applied, 0 failed |
+| Downloader / Ghost code | absent from all 32 dex files |
+
+**Static standalone-installability prerequisites all pass**: complete dex set,
+resources, arm64 native libraries, no split requirement, valid v2 signature,
+valid zip, enabled launcher. **Actual installation was not performed in this
+environment**; it is the manual device step below.
+
+**Signing-key note:** the baseline signer
+(`d9808bf3…eda1a`) differs from the currently published fixed build
+(`8f1e37ce…fdb0`) and from stock Instagram. Installing it over either requires
+uninstalling `com.instagram.android` first, which clears app data.
