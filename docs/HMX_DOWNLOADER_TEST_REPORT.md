@@ -88,6 +88,11 @@ accessors listed in the architecture document).
 
 ## 4. Honest summary
 
+The capture hook was **proved in a real build**: the gated run 43168216595
+applied *HMX downloader capture*, and that patch fails closed when it finds no
+media model, so a passing build means the hook actually attached to Instagram's
+media parser.
+
 The downloader's **rules** are implemented and tested: what can be offered for
 a photo, a video, a carousel, a story and a reel, how items are named, how
 duplicates are caught, when a download can be retried and when a story is
