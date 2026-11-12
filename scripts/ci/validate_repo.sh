@@ -46,7 +46,8 @@ for f in \
   scripts/ci/validate_features.sh \
   scripts/ci/test_downloader_isolation.sh \
   docs/HMX_INSTA_M1_DOWNLOADER_CORE.md \
-  docs/HMX_INSTA_M2_ANDROID_SHELL.md
+  docs/HMX_INSTA_M2_ANDROID_SHELL.md \
+  docs/HMX_INSTA_M2_DEVICE_CHECKLIST.md
  do
   if [ -f "$f" ]; then note "ok: $f"; else bad "missing required file: $f"; fi
 done

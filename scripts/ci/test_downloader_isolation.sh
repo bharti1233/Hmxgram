@@ -137,6 +137,7 @@ while IFS= read -r path; do
     .github/workflows/ci.yml) ;;
     docs/HMX_INSTA_M1_DOWNLOADER_CORE.md) ;;
     docs/HMX_INSTA_M2_ANDROID_SHELL.md) ;;
+    docs/HMX_INSTA_M2_DEVICE_CHECKLIST.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;

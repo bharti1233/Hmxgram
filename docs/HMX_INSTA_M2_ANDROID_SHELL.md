@@ -133,6 +133,11 @@ change to a protected M0 file or to the share-target patch fails the digest.
 
 ## 6. Device checklist (OPPO A38)
 
+**Device status: NOT TESTED.** No physical device was available for M2 review,
+so none of the checks below has evidence yet. The expanded Android 15 /
+ColorOS 15 procedure, the ADB commands and the static findings that block
+promotion are in [HMX_INSTA_M2_DEVICE_CHECKLIST.md](HMX_INSTA_M2_DEVICE_CHECKLIST.md).
+
 1. Share a feed photo from Instagram to HMX Insta → saved in
    `Pictures/HMXInsta`, notification shown, history entry present.
 2. Share a reel/video → saved in `Movies/HMXInsta`.
