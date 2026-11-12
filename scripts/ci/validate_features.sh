@@ -78,6 +78,27 @@ else
     note "ok: the queue is only fed by the download menu"
 fi
 
+note "== The capture hook keeps the parsed media =="
+CAPTURE_PATCH="patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderCapturePatch.kt"
+if grep -q 'capture(Ljava/lang/Object;)Ljava/lang/Object;' "$CAPTURE_PATCH" &&
+   grep -q 'move-result-object v\$register' "$CAPTURE_PATCH"; then
+    note "ok: the capture hook puts the parsed media back into its register"
+else
+    bad "the capture hook must return the media and restore it (move-result-object)"
+fi
+if grep -q 'public Object capture(Object model)' \
+        extensions/extension/src/main/java/com/feurstagram/extension/downloader/MediaRegistry.java; then
+    note "ok: the registry hands the media back to the patch"
+else
+    bad "MediaRegistry.capture must return the media so the patch can restore the register"
+fi
+if grep -q 'removeOnGlobalLayoutListener(listener)' \
+        extensions/extension/src/main/java/com/feurstagram/extension/downloader/DownloaderInstaller.java; then
+    note "ok: the layout listener is taken off again when the screen goes away"
+else
+    bad "the downloader installer must remove its layout listener"
+fi
+
 note "== The ghost-mode controls Instagram decides on the server stay off =="
 for feature in HIDE_ONLINE_STATUS DISABLE_ACTIVITY_STATUS ANONYMOUS_STORY_VIEWING HIDE_LIVE_VIEW; do
     if grep -A6 "$feature(" "$GH/GhostFeature.java" | grep -q "Support.UNSUPPORTED"; then

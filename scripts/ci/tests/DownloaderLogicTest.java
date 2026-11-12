@@ -5,6 +5,7 @@ import com.feurstagram.extension.downloader.FeedMediaAdapter;
 import com.feurstagram.extension.downloader.MediaItem;
 import com.feurstagram.extension.downloader.MediaKind;
 import com.feurstagram.extension.downloader.MediaNaming;
+import com.feurstagram.extension.downloader.MediaRegistry;
 import com.feurstagram.extension.downloader.MediaResolver;
 import com.feurstagram.extension.downloader.ReelMediaAdapter;
 import com.feurstagram.extension.downloader.StoryMediaAdapter;
@@ -34,6 +35,7 @@ public final class DownloaderLogicTest {
         expiredStory();
         liveStory();
         reel();
+        registry();
 
         System.out.println("Downloader logic tests passed (" + checks + " checks)");
     }
@@ -305,6 +307,32 @@ public final class DownloaderLogicTest {
         check("reel: video", video);
         check("reel: audio", audio);
         check("reel: cover", cover);
+    }
+
+    /**
+     * The registry hands the media straight back.
+     *
+     * The patch calls capture() right after Instagram's parser produced the
+     * media, and the call would destroy the register that holds it: capture()
+     * therefore returns the very same object, and the patch puts it back. A
+     * capture that returned void is what broke the app's startup.
+     */
+    private static void registry() {
+        MediaRegistry registry = MediaRegistry.get();
+        registry.clear();
+
+        FakeMedia media = new FakeMedia();
+        media.id = "1234567890";
+        media.imageUrl = "https://cdn.example/photo.jpg";
+
+        Object returned = registry.capture(media);
+        check("registry: capture returns the model", returned == media);
+        MediaRegistry.Entry latest = registry.latest();
+        check("registry: the media was captured", latest != null && latest.model() == media);
+        check("registry: one entry", registry.entries().size() == 1);
+
+        registry.clear();
+        check("registry: cleared", registry.latest() == null);
     }
 
     private static String repeat(String value, int times) {

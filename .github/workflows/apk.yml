@@ -451,6 +451,13 @@ jobs:
           fi
           bash ./build.sh "${args[@]}" 2>&1 | tee -a "$RUNNER_TEMP/apk-build.log"
 
+      # The capture hook runs right after Instagram's media parser produced the
+      # model, so the call has to put the model back. If it does not, the feed
+      # never loads and the app sits on a spinner: this check makes that a
+      # build failure instead of a broken app.
+      - name: Verify the downloader capture hook
+        run: python3 scripts/ci/verify_capture_patch.py feurstagram.apk
+
       - name: Validate final standalone packaging
         env:
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}

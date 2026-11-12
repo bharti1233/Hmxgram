@@ -121,10 +121,15 @@ val downloaderCapturePatch = bytecodePatch(
                 }
                 // Backwards, so an insertion does not move the sites still to visit.
                 callSites.sortedByDescending { it.first }.forEach { (index, register) ->
+                    // The call would destroy the register that holds the parsed
+                    // media, so the model is put straight back: the capture
+                    // returns it unchanged. This is the pattern the feed filter
+                    // uses, and the reason the app kept working there.
                     method.addInstructions(
                         index,
                         "invoke-static/range { v$register .. v$register }, " +
-                            "$REGISTRY_CLASS->capture(Ljava/lang/Object;)V",
+                            "$REGISTRY_CLASS->capture(Ljava/lang/Object;)Ljava/lang/Object;\n" +
+                            "move-result-object v$register",
                     )
                     hooked++
                 }

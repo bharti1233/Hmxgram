@@ -34,6 +34,7 @@ javac -d "$tmp" -nowarn -encoding UTF-8 \
     "$EXT/DownloadError.java" \
     "$EXT/DownloadTask.java" \
     "$EXT/DuplicateDetector.java" \
+    "$EXT/MediaRegistry.java" \
     "$TESTS/DownloaderLogicTest.java"
 
 echo "== running the downloader logic tests =="

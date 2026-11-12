@@ -52,9 +52,16 @@ public final class MediaRegistry {
         }
     }
 
-    /** Records a media model the app has just parsed or displayed. */
-    public void capture(Object model) {
-        if (model == null) return;
+    /**
+     * Records a media model the app has just parsed or displayed.
+     *
+     * The model is returned unchanged: the patch that calls this runs right
+     * after Instagram's parser produced the model, and the call would
+     * otherwise destroy the register that holds it. Returning the model lets
+     * the patch put it straight back.
+     */
+    public Object capture(Object model) {
+        if (model == null) return null;
         String id = MediaResolver.mediaId(model);
         String key = id != null ? id : String.valueOf(System.identityHashCode(model));
         synchronized (lock) {
@@ -65,6 +72,7 @@ public final class MediaRegistry {
                 entries.remove(oldest);
             }
         }
+        return model;
     }
 
     /** The captured media, newest first. */
