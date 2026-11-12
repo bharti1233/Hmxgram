@@ -8,6 +8,8 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 
+import com.feurstagram.extension.downloader.core.CancellationSignal;
+import com.feurstagram.extension.downloader.core.GuardedCopy;
 import com.feurstagram.extension.downloader.core.StoragePlan;
 
 import java.io.BufferedInputStream;
@@ -23,8 +25,12 @@ import java.io.OutputStream;
  *
  * <p>On Android 10 and later the row is inserted with
  * {@code RELATIVE_PATH} and {@code IS_PENDING=1}, the bytes are copied, and
- * only then is the pending flag cleared. Every failure path deletes the
- * pending row, so a broken download never leaves an empty gallery entry.
+ * only then is the pending flag cleared. Every failure path — including
+ * cancellation at any point — deletes the pending row, so a broken download
+ * never leaves an empty gallery entry. The cancel signal is checked before the
+ * insert, before the copy, on every buffer and before the row is published;
+ * a cancel that still lands after publication deletes the published row
+ * through {@link #discard(Context, Uri)}.
  *
  * <p>Android 9 and older have no scoped-storage columns, so the plan's
  * directory is created with a legacy {@code DATA} path. The app requests no
@@ -33,26 +39,49 @@ import java.io.OutputStream;
  */
 final class MediaStoreWriter {
 
-    private static final int BUFFER_SIZE = 64 * 1024;
-
     private MediaStoreWriter() {
     }
 
+    /** A published gallery item: its row URI and the path recorded in history. */
+    static final class Published {
+        final Uri uri;
+        final String path;
+
+        Published(Uri uri, String path) {
+            this.uri = uri;
+            this.path = path;
+        }
+
+        Uri uri() {
+            return uri;
+        }
+
+        String path() {
+            return path;
+        }
+    }
+
     /**
-     * Publishes {@code source} and returns the gallery path recorded in
-     * history.
+     * Publishes {@code source} and returns the row and the gallery path.
      *
+     * @throws com.feurstagram.extension.downloader.core.DownloadCancelledException
+     *         when the signal was set before or during the write
      * @throws IOException when the row cannot be inserted, written or
      *         published
      */
-    static String publish(Context context, StoragePlan plan, File source)
-            throws IOException {
+    static Published publish(Context context, StoragePlan plan, File source,
+            CancellationSignal cancelled) throws IOException {
         if (plan == null || source == null) {
             throw new IllegalArgumentException("a publish needs a plan and a source");
+        }
+        if (cancelled == null) {
+            throw new IllegalArgumentException("a publish needs a cancellation signal");
         }
         if (!source.isFile() || source.length() <= 0L) {
             throw new IOException("the downloaded file is empty");
         }
+        cancelled.throwIfCancelled();
+
         ContentResolver resolver = context.getContentResolver();
         Uri collection = collectionFor(plan);
         ContentValues values = new ContentValues();
@@ -77,18 +106,22 @@ final class MediaStoreWriter {
         }
         boolean published = false;
         try {
+            cancelled.throwIfCancelled();
             OutputStream raw = resolver.openOutputStream(uri);
             if (raw == null) {
                 throw new IOException("MediaStore returned no output stream");
             }
             try (InputStream in = new BufferedInputStream(new FileInputStream(source));
                     OutputStream out = new BufferedOutputStream(raw)) {
-                byte[] buffer = new byte[BUFFER_SIZE];
-                int read;
-                while ((read = in.read(buffer)) != -1) {
-                    out.write(buffer, 0, read);
-                }
+                // Every cancelled or failed copy deletes the pending row.
+                GuardedCopy.copy(in, out, cancelled, new GuardedCopy.Discard() {
+                    @Override
+                    public void discard() {
+                        resolver.delete(uri, null, null);
+                    }
+                });
             }
+            cancelled.throwIfCancelled();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ContentValues done = new ContentValues();
                 done.put(MediaStore.MediaColumns.IS_PENDING, 0);
@@ -97,7 +130,7 @@ final class MediaStoreWriter {
                 }
             }
             published = true;
-            return plan.relativeDirectory() + "/" + plan.fileName();
+            return new Published(uri, plan.relativeDirectory() + "/" + plan.fileName());
         } catch (IOException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -111,6 +144,61 @@ final class MediaStoreWriter {
                     // cleanup; either way there is nothing better to do.
                 }
             }
+        }
+    }
+
+    /**
+     * Deletes a published row after a late cancellation. Best effort: if the
+     * provider refuses, the item simply stays, and the history entry says
+     * cancelled.
+     */
+    static void discard(Context context, Uri uri) {
+        if (context == null || uri == null) {
+            return;
+        }
+        try {
+            context.getContentResolver().delete(uri, null, null);
+        } catch (RuntimeException ignored) {
+            // The row may already be gone.
+        }
+    }
+
+    /**
+     * Deletes a published item by its history path. Used when a cancellation
+     * landed between the final publish and the queue transition, so a
+     * cancelled task can never keep a finished file.
+     */
+    static void discardByPath(Context context, String path) {
+        if (context == null || path == null || path.trim().isEmpty()) {
+            return;
+        }
+        String trimmed = path.trim();
+        if (trimmed.startsWith("/")) {
+            // Pre-Q legacy writes went straight to a file.
+            new File(trimmed).delete();
+            return;
+        }
+        int slash = trimmed.lastIndexOf('/');
+        if (slash <= 0) {
+            return;
+        }
+        String directory = trimmed.substring(0, slash);
+        String name = trimmed.substring(slash + 1);
+        Uri collection;
+        if (directory.startsWith("Music/")) {
+            collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+        } else if (directory.startsWith("Movies/")) {
+            collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+        } else {
+            collection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        }
+        try {
+            context.getContentResolver().delete(collection,
+                    MediaStore.MediaColumns.RELATIVE_PATH + "=? AND "
+                            + MediaStore.MediaColumns.DISPLAY_NAME + "=?",
+                    new String[]{directory + "/", name});
+        } catch (RuntimeException ignored) {
+            // Cleanup is best effort; the history entry stays authoritative.
         }
     }
 

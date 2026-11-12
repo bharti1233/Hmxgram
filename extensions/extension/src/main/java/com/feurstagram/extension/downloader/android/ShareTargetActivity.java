@@ -1,12 +1,16 @@
 package com.feurstagram.extension.downloader.android;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.Toast;
 
 import com.feurstagram.extension.downloader.core.DownloadQueue;
+import com.feurstagram.extension.downloader.core.NotificationPermissionPolicy;
 
 import java.io.IOException;
 import java.util.List;
@@ -18,14 +22,21 @@ import java.util.concurrent.RejectedExecutionException;
  * Entry point for {@code ACTION_SEND} and {@code ACTION_SEND_MULTIPLE}.
  *
  * <p>The activity is deliberately invisible: the share-target patch gives it
- * a translucent theme and keeps it out of Recents. It copies the shared
- * streams to private cache storage, enqueues one download per item and then
- * finishes. The ongoing notification reports progress; this activity never
- * touches an Instagram view or internal.
+ * a translucent theme and keeps it out of Recents. It asks for the Android 13
+ * notification permission once per install (denial is respected and the save
+ * continues either way), copies the shared streams to private cache storage,
+ * enqueues one download per item and then finishes. The foreground service
+ * reports progress; this activity never touches an Instagram view or internal.
  */
 public final class ShareTargetActivity extends Activity {
 
+    private static final String PREFS_NAME = "hmx_download_prefs";
+    private static final String KEY_NOTIFICATION_ASKED =
+            "notification_permission_asked";
+    private static final int REQUEST_NOTIFICATIONS = 4103;
+
     private ExecutorService importer;
+    private List<ShareIntentParser.Payload> pendingPayloads;
     private boolean handled;
 
     @Override
@@ -50,20 +61,75 @@ public final class ShareTargetActivity extends Activity {
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_NOTIFICATIONS) {
+            return;
+        }
+        // The result is deliberately ignored here: a denial only means no
+        // drawer notifications, never a failed save.
+        List<ShareIntentParser.Payload> payloads = pendingPayloads;
+        pendingPayloads = null;
+        if (payloads == null) {
+            finish();
+            return;
+        }
+        importAll(payloads);
+    }
+
     private void handle(Intent intent) {
         if (handled) {
             return;
         }
         handled = true;
-        final Context app = getApplicationContext();
         final List<ShareIntentParser.Payload> payloads;
         try {
             payloads = ShareIntentParser.parse(this, intent);
         } catch (IllegalArgumentException e) {
-            showMessage("HMX Insta can only save shared photos and videos");
+            showMessage("HMX Insta can only save shared photos, videos and audio");
             return;
         }
 
+        if (NotificationPermissionPolicy.Decision.REQUEST
+                == notificationDecision()) {
+            // One prompt per install, remembered even if the process is
+            // recreated while the dialog is up.
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_NOTIFICATION_ASKED, true)
+                    .apply();
+            pendingPayloads = payloads;
+            try {
+                requestPermissions(
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                        REQUEST_NOTIFICATIONS);
+                // The import resumes in onRequestPermissionsResult, whatever
+                // the user answers.
+                return;
+            } catch (RuntimeException e) {
+                pendingPayloads = null;
+                // Fall through and save without ever asking again.
+            }
+        }
+        importAll(payloads);
+    }
+
+    private NotificationPermissionPolicy.Decision notificationDecision() {
+        if (Build.VERSION.SDK_INT < NotificationPermissionPolicy.ANDROID_13) {
+            return NotificationPermissionPolicy.Decision.SKIP;
+        }
+        boolean granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean askedBefore = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_NOTIFICATION_ASKED, false);
+        return NotificationPermissionPolicy.decide(
+                Build.VERSION.SDK_INT, granted, askedBefore);
+    }
+
+    private void importAll(final List<ShareIntentParser.Payload> payloads) {
+        final Context app = getApplicationContext();
         final ExecutorService executor = importer;
         if (executor == null) {
             showMessage("HMX Insta is not ready to receive shares");

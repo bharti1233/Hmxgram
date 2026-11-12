@@ -16,8 +16,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 BASE="${HMX_DOWNLOADER_BASE:-ba72c21d0c1aafc6aa4ec48283f9a75be26ca9d0}"
 # Computed from the M1 integration commit plus the reviewed M2 files over the
-# protected paths listed below. The share-target patch is deliberately included.
-PINNED_PROTECTED_DIGEST="a50f758e3b99290969bd3cccce58978d4602909463948d5474a54bb5e8671aeb"
+# protected paths listed below. The share-target patch is deliberately included;
+# the digest was re-pinned when the M2 audit fixes (F1-F7) extended the patch
+# with the download service, the foreground-service permissions and audio MIME.
+PINNED_PROTECTED_DIGEST="8fcb34723c58e8765d54fca63e7d43dd041d1db19ab9c10d69c5eda84bcba47e"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 

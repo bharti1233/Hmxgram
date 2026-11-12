@@ -16,7 +16,9 @@ import java.nio.ByteBuffer;
  * <p>The share-target critical path never depends on this: a photo or a video
  * is published even if extraction is unsupported on a device. Extraction is
  * only attempted for an {@link com.feurstagram.extension.downloader.core.DownloadKind#AUDIO}
- * task whose source is not already audio.
+ * task whose source is a container {@link com.feurstagram.extension.downloader.core.AudioSourcePolicy}
+ * accepts; an empty or unsupported result is reported as {@code false} so the
+ * task fails with {@code unsupported} instead of leaving a silent file.
  *
  * <p>No Instagram class or method is referenced.
  */
@@ -70,6 +72,7 @@ final class AudioExtractor {
             }
             ByteBuffer buffer = ByteBuffer.allocateDirect(capacity);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            long samples = 0L;
             while (true) {
                 int size = extractor.readSampleData(buffer, 0);
                 if (size < 0) {
@@ -80,11 +83,14 @@ final class AudioExtractor {
                 info.presentationTimeUs = extractor.getSampleTime();
                 info.flags = extractor.getSampleFlags();
                 muxer.writeSampleData(outputTrack, buffer, info);
+                samples++;
                 if (!extractor.advance()) {
                     break;
                 }
             }
-            return true;
+            // An empty muxer output is a silent, broken file: report failure
+            // so the caller deletes it instead of publishing it.
+            return samples > 0;
         } catch (RuntimeException e) {
             throw new IOException("audio extraction failed", e);
         } finally {
