@@ -118,7 +118,7 @@ val downloaderCapturePatch = bytecodePatch(
                 }
                 // Backwards, so an insertion does not move the sites still to visit.
                 callSites.sortedByDescending { it.first }.forEach { (index, register) ->
-                    addInstructions(
+                    method.addInstructions(
                         index,
                         "invoke-static/range { v$register .. v$register }, " +
                             "$REGISTRY_CLASS->capture(Ljava/lang/Object;)V",

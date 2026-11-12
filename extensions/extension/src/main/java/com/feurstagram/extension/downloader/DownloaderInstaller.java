@@ -45,7 +45,9 @@ public final class DownloaderInstaller {
         Context context = Config.getAppContext();
         if (context == null) return;
         try {
-            context.getApplicationContext().registerActivityLifecycleCallbacks(
+            android.app.Application application =
+                    (android.app.Application) context.getApplicationContext();
+            application.registerActivityLifecycleCallbacks(
                     new android.app.Application.ActivityLifecycleCallbacks() {
                         @Override public void onActivityCreated(Activity a, android.os.Bundle b) {}
                         @Override public void onActivityStarted(Activity a) {}

@@ -75,8 +75,8 @@ final class DownloadHistory {
                 asLong(all.get(b + ".at")), asLong(all.get(a + ".at"))));
         for (String key : keys) {
             DownloadTask task = new DownloadTask(null, "",
-                    all.getString(key + ".label", "HMX Insta"));
-            String state = all.getString(key + ".state", DownloadTask.State.FAILED.name());
+                    asString(all.get(key + ".label"), "HMX Insta"));
+            String state = asString(all.get(key + ".state"), DownloadTask.State.FAILED.name());
             if (DownloadTask.State.DONE.name().equals(state)) {
                 task.succeed(asString(all.get(key + ".path"), ""));
             } else if (DownloadTask.State.CANCELLED.name().equals(state)) {

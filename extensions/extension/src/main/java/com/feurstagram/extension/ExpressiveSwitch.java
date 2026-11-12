@@ -21,7 +21,7 @@ public final class ExpressiveSwitch extends CompoundButton {
     private ValueAnimator movement;
     private ValueAnimator pressure;
 
-    ExpressiveSwitch(Context context) {
+    public ExpressiveSwitch(Context context) {
         super(context);
         setButtonDrawable(null);
         setBackground(null);
