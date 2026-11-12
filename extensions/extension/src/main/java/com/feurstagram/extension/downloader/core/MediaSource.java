@@ -40,7 +40,19 @@ public interface MediaSource {
                 throw new IllegalArgumentException("items must not contain null");
             }
             if (item.kind().isContainer()) {
-                expanded.addAll(item.children());
+                long containerExpiry = item.expiresAtEpochMs();
+                for (MediaItem child : item.children()) {
+                    // A carousel cannot outlive its container. Keep the
+                    // earliest expiry so an expanded child is still refused
+                    // once the container has expired.
+                    if (containerExpiry > 0L
+                            && (child.expiresAtEpochMs() == 0L
+                                    || containerExpiry < child.expiresAtEpochMs())) {
+                        expanded.add(child.withExpiresAtEpochMs(containerExpiry));
+                    } else {
+                        expanded.add(child);
+                    }
+                }
             } else {
                 expanded.add(item);
             }

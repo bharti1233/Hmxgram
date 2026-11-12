@@ -33,6 +33,7 @@ public final class DownloaderCoreTest {
         run("queue concurrency", DownloaderCoreTest::queueConcurrency);
         run("queue duplicate handling", DownloaderCoreTest::queueDuplicates);
         run("queue retry policy", DownloaderCoreTest::queueRetry);
+        run("queue clear and retention", DownloaderCoreTest::queueClearAndRetention);
         run("queue expiry refusal", DownloaderCoreTest::queueExpiryRefusal);
         run("media source expansion", DownloaderCoreTest::mediaSourceExpansion);
         run("repository history", DownloaderCoreTest::repositoryHistory);
@@ -186,6 +187,19 @@ public final class DownloaderCoreTest {
         expect(UnsupportedOperationException.class,
                 () -> carousel.children().add(photo),
                 "children are immutable");
+
+        MediaItem audio = new MediaItem.Builder(DownloadKind.AUDIO)
+                .url("https://cdn.example/a.m4a")
+                .build();
+        MediaItem cover = new MediaItem.Builder(DownloadKind.COVER)
+                .url("https://cdn.example/cover.jpg")
+                .build();
+        expect(IllegalArgumentException.class,
+                () -> new MediaItem.Builder(DownloadKind.CAROUSEL).addChild(audio),
+                "audio cannot be a carousel child");
+        expect(IllegalArgumentException.class,
+                () -> new MediaItem.Builder(DownloadKind.CAROUSEL).addChild(cover),
+                "cover cannot be a carousel child");
     }
 
     private static void expiryRules() {
@@ -207,6 +221,37 @@ public final class DownloaderCoreTest {
                 .build();
         eq(DownloadError.EXPIRED_MEDIA, carousel.downloadability(2000L),
                 "carousel with an expired child is refused");
+
+        MediaItem expiringCarousel = new MediaItem.Builder(DownloadKind.CAROUSEL)
+                .id("c-story")
+                .expiresAtEpochMs(1500L)
+                .addChild(photo("c-live", "https://cdn.example/live.jpg", "x"))
+                .build();
+        check(!expiringCarousel.isExpired(1499L), "carousel is live before expiry");
+        eq(null, expiringCarousel.downloadability(1499L),
+                "live carousel is downloadable");
+        eq(DownloadError.EXPIRED_MEDIA, expiringCarousel.downloadability(1500L),
+                "carousel-level expiry is honoured");
+        MediaItem expanded = MediaSource.flatten(
+                Arrays.asList(expiringCarousel)).get(0);
+        eq(1500L, expanded.expiresAtEpochMs(),
+                "carousel expiry is applied to its child");
+        eq(DownloadError.EXPIRED_MEDIA, expanded.downloadability(1500L),
+                "expanded child inherits the carousel expiry");
+
+        MediaItem earlierChild = new MediaItem.Builder(DownloadKind.PHOTO)
+                .id("c-earlier")
+                .url("https://cdn.example/earlier.jpg")
+                .expiresAtEpochMs(1200L)
+                .build();
+        MediaItem laterCarousel = new MediaItem.Builder(DownloadKind.CAROUSEL)
+                .id("c-later")
+                .expiresAtEpochMs(1500L)
+                .addChild(earlierChild)
+                .build();
+        eq(1200L, MediaSource.flatten(Arrays.asList(laterCarousel))
+                        .get(0).expiresAtEpochMs(),
+                "the earlier child expiry wins");
     }
 
     private static void namingSanitisation() {
@@ -251,6 +296,13 @@ public final class DownloaderCoreTest {
         eq("image/jpeg", MediaNaming.mimeFor(barePhoto), "photo mime");
         eq("video/mp4", MediaNaming.mimeFor(bareVideo), "video mime");
         eq("audio/mp4", MediaNaming.mimeFor(bareAudio), "audio mime");
+
+        MediaItem noisyMime = new MediaItem.Builder(DownloadKind.PHOTO)
+                .url("https://cdn.example/noisy.jpg")
+                .mimeType(" IMAGE/JPEG; charset=binary ")
+                .build();
+        eq("image/jpeg", MediaNaming.mimeFor(noisyMime),
+                "declared mime is normalised for storage");
     }
 
     private static void fileNaming() {
@@ -286,6 +338,16 @@ public final class DownloaderCoreTest {
         expect(IllegalArgumentException.class,
                 () -> MediaNaming.buildFileName(item, -1L),
                 "negative timestamp rejected");
+
+        MediaItem slashId = photo("a/b", "https://cdn.example/one.jpg", "alice");
+        MediaItem queryId = photo("a?b", "https://cdn.example/two.jpg", "alice");
+        String slashName = MediaNaming.buildFileName(slashId, 7L);
+        String queryName = MediaNaming.buildFileName(queryId, 7L);
+        check(!slashName.equals(queryName), "sanitised ids do not collide");
+        check(slashName.startsWith("hmx_alice_a_b_"),
+                "sanitised id stays readable: " + slashName);
+        check(!slashName.contains("/") && !slashName.contains("?"),
+                "sanitised id is a safe segment");
     }
 
     private static void duplicateKeys() {
@@ -503,6 +565,33 @@ public final class DownloaderCoreTest {
         eq(DownloadQueue.EnqueueStatus.ADDED,
                 failQueue.enqueue(item("fail-me")).status(),
                 "permanently failed item can be queued again");
+
+        InMemoryDownloadRepository persisted = new InMemoryDownloadRepository(5);
+        persisted.save(doneTask("persisted-done", "persisted-done"));
+        persisted.save(failedTask("persisted-failed", "persisted-failed"));
+        DownloadQueue restored = new DownloadQueue(5, 1, 3);
+        eq(1, restored.seedSaved(persisted),
+                "only completed history seeds the duplicate set");
+        eq(DownloadQueue.EnqueueStatus.DUPLICATE,
+                restored.enqueue(item("persisted-done")).status(),
+                "persisted completed item is a duplicate after restart");
+        eq(DownloadQueue.EnqueueStatus.ADDED,
+                restored.enqueue(item("persisted-failed")).status(),
+                "persisted failure is not a duplicate");
+        check(restored.rememberSaved("id:manual-seed"), "manual key seeded");
+        check(!restored.rememberSaved("id:manual-seed"), "seeding is idempotent");
+        eq(DownloadQueue.EnqueueStatus.DUPLICATE,
+                restored.enqueue(item("manual-seed")).status(),
+                "manually seeded key is a duplicate");
+        expect(IllegalArgumentException.class,
+                () -> restored.rememberSaved((String) null),
+                "null seed key rejected");
+        expect(IllegalArgumentException.class,
+                () -> restored.rememberSaved((MediaItem) null),
+                "null seed item rejected");
+        expect(IllegalArgumentException.class,
+                () -> restored.seedSaved(null),
+                "null seed repository rejected");
     }
 
     private static void queueRetry() {
@@ -538,6 +627,57 @@ public final class DownloaderCoreTest {
         check(fullQueue.cancel(blocker.id()), "blocker cancelled");
         check(fullQueue.retry(blocked.id()), "manual retry succeeds when room appears");
         eq(DownloadState.QUEUED, blocked.state(), "manual retry queued");
+
+        DownloadQueue duplicateGuard = new DownloadQueue(1, 1, 3);
+        DownloadTask stale = duplicateGuard.enqueue(item("manual-dup")).task();
+        duplicateGuard.startNext();
+        DownloadTask blocker2 = duplicateGuard.enqueue(item("blocker-2")).task();
+        check(!duplicateGuard.fail(stale.id(), DownloadError.NETWORK),
+                "no room to requeue automatically");
+        check(duplicateGuard.cancel(blocker2.id()), "second blocker cancelled");
+        DownloadQueue.EnqueueResult fresh = duplicateGuard.enqueue(item("manual-dup"));
+        eq(DownloadQueue.EnqueueStatus.ADDED, fresh.status(),
+                "failed item can be enqueued as a new task");
+        check(!duplicateGuard.retry(stale.id()),
+                "manual retry refuses an active duplicate");
+        duplicateGuard.startNext();
+        duplicateGuard.complete(fresh.task().id(),
+                DownloadResult.success("/gallery/manual.jpg", 1L));
+        check(!duplicateGuard.retry(stale.id()),
+                "manual retry refuses a saved duplicate");
+    }
+
+    private static void queueClearAndRetention() {
+        DownloadQueue queue = new DownloadQueue(2, 1, 3);
+        DownloadTask finished = queue.enqueue(item("finished")).task();
+        queue.startNext();
+        queue.complete(finished.id(), DownloadResult.success("/gallery/finished.jpg", 1L));
+        DownloadTask running = queue.enqueue(item("running")).task();
+        queue.startNext();
+        eq(1, queue.runningCount(), "running task before clear");
+
+        queue.clear();
+        eq(1, queue.runningCount(), "clear keeps running tasks");
+        check(queue.task(finished.id()) == null, "clear forgets the finished task");
+        check(queue.task(running.id()) != null, "clear keeps the running task");
+        eq(0, queue.savedCount(), "clear forgets the duplicate history");
+        queue.complete(running.id(), DownloadResult.success("/gallery/running.jpg", 1L));
+        eq(1, queue.savedCount(), "a task completing after clear is remembered");
+        eq("task-3", queue.enqueue(item("next")).task().id(),
+                "clear does not reuse task ids");
+
+        DownloadQueue bounded = new DownloadQueue(1, 1, 1);
+        int total = DownloadQueue.MAX_FINISHED_TASKS + 1;
+        for (int i = 0; i < total; i++) {
+            DownloadTask task = bounded.enqueue(item("finish-" + i)).task();
+            bounded.startNext();
+            bounded.complete(task.id(),
+                    DownloadResult.success("/gallery/" + i + ".jpg", 1L));
+        }
+        eq(DownloadQueue.MAX_FINISHED_TASKS, bounded.tasks().size(),
+                "finished task map is bounded");
+        check(bounded.task("task-1") == null, "oldest finished task is pruned");
+        check(bounded.task("task-" + total) != null, "newest finished task is retained");
     }
 
     private static void queueExpiryRefusal() {
@@ -634,6 +774,26 @@ public final class DownloaderCoreTest {
                 new InMemoryDownloadRepository().capacity(), "default capacity");
         expect(IllegalArgumentException.class,
                 () -> new InMemoryDownloadRepository(0), "zero capacity rejected");
+
+        InMemoryDownloadRepository snapshots = new InMemoryDownloadRepository(5);
+        DownloadTask failedSnapshot = new DownloadTask("snap-failed", item("snap"));
+        failedSnapshot.start();
+        failedSnapshot.fail(DownloadError.NETWORK);
+        snapshots.save(failedSnapshot);
+
+        DownloadTask stored = snapshots.history().get(0);
+        check(stored != failedSnapshot, "history returns an independent copy");
+        check(stored.retry(), "a returned copy can be inspected and retried");
+        eq(DownloadState.FAILED, snapshots.history().get(0).state(),
+                "mutating a returned copy does not change the repository");
+
+        check(failedSnapshot.retry(), "the original failed task can be retried");
+        failedSnapshot.start();
+        failedSnapshot.succeed(DownloadResult.success("/gallery/snap.jpg", 1L));
+        eq(DownloadState.FAILED, snapshots.history().get(0).state(),
+                "mutating the saved task does not change the repository");
+        check(!snapshots.contains(failedSnapshot.duplicateKey()),
+                "the stored snapshot is still a failure, not a duplicate");
     }
 
     private static void storagePlans() {

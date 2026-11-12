@@ -56,7 +56,7 @@ and import only `java.*`.
 | `DownloadTask` | validated per-task state machine and retry predicate |
 | `DownloadQueue` | bounded waiting list, concurrency limit, retry policy, duplicate policy |
 | `DownloadRepository` | history contract |
-| `InMemoryDownloadRepository` | bounded, thread-safe reference implementation (default 100 entries) |
+| `InMemoryDownloadRepository` | bounded, thread-safe reference implementation (default 100 entries; stores and returns snapshots) |
 | `StoragePlan` | pure storage decision: directory, file name, MIME, pending flag, temp name |
 
 ### Queue rules
@@ -73,6 +73,14 @@ and import only `java.*`.
   is not remembered as a duplicate.
 * Retrying a failed task is allowed only while attempts remain, the error is
   recoverable and the waiting list has room.
+* A manual retry is refused when the same item is already waiting, running or
+  saved, so it can never create a second active copy.
+* At most 100 finished tasks stay addressable; older ones are pruned while the
+  separate saved-key set keeps duplicate detection intact.
+* `clear()` forgets only finished tasks and the saved-key history. Waiting and
+  running tasks are kept, and task ids keep increasing.
+* Persisted history can be restored with `seedSaved(repository)` or individual
+  keys with `rememberSaved(...)` after a restart.
 * An expired story is refused at enqueue time with `IllegalArgumentException`;
   it never occupies a slot.
 
@@ -86,7 +94,11 @@ and import only `java.*`.
 * The temporary name is the final name plus `.part`.
 * File names are a single safe segment (`hmx_<owner>_<id>_<kind>_<time>.<ext>`),
   capped at 120 characters; `..`, separators and reserved device names cannot
-  survive sanitisation.
+  survive sanitisation. An id that sanitisation or truncation had to change also
+  carries a short duplicate-key hash, so different media ids cannot collapse to
+  the same file name.
+* Declared MIME types are normalised (parameters stripped, lower-cased) before
+  they reach a storage plan.
 * No broad storage permission is requested or referenced.
 
 ### Error taxonomy
@@ -131,13 +143,15 @@ Coverage groups:
 13. queue concurrency (two slots, refill)
 14. queue duplicate handling (queued, running, saved, re-enqueue after cancel)
 15. queue retry policy (automatic requeue, exhaustion, full queue, manual retry)
-16. queue expiry refusal
-17. media source carousel expansion
-18. repository history (terminal-only, order, limit, capacity, contains)
-19. storage plans (directories, pending, temp name, path safety)
-20. MIME round trip
+16. queue duplicate guard for manual retry
+17. queue clear and bounded finished-task retention
+18. queue expiry refusal
+19. media source carousel expansion and expiry inheritance
+20. repository history (terminal-only, order, limit, capacity, contains, snapshots)
+21. storage plans (directories, pending, temp name, path safety)
+22. MIME round trip
 
-Result on this branch: **PASS 20 downloader-core tests**.
+Result on this branch: **PASS 21 downloader-core tests**.
 
 ### 3.2 Static gates
 

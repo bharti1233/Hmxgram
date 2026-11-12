@@ -49,6 +49,21 @@ public final class DownloadTask {
         this.createdAtMs = createdAtMs;
     }
 
+    /**
+     * Copy constructor used by {@link #snapshot()}. The caller must hold this
+     * task's monitor so the copied state is consistent.
+     */
+    private DownloadTask(DownloadTask source) {
+        this.id = source.id;
+        this.item = source.item;
+        this.maxAttempts = source.maxAttempts;
+        this.createdAtMs = source.createdAtMs;
+        this.state = source.state;
+        this.attempts = source.attempts;
+        this.error = source.error;
+        this.result = source.result;
+    }
+
     public String id() {
         return id;
     }
@@ -162,6 +177,16 @@ public final class DownloadTask {
     /** The duplicate key of the item. */
     public String duplicateKey() {
         return MediaNaming.duplicateKey(item);
+    }
+
+    /**
+     * An independent copy of this task at its current state.
+     *
+     * <p>History stores and returns snapshots so that retrying or inspecting a
+     * returned task can never mutate the repository's own entries.
+     */
+    public synchronized DownloadTask snapshot() {
+        return new DownloadTask(this);
     }
 
     @Override

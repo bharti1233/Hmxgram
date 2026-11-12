@@ -3,6 +3,7 @@ package com.feurstagram.extension.downloader.core;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,13 @@ public final class DownloadQueue {
     public static final int DEFAULT_MAX_WAITING = 20;
     public static final int DEFAULT_MAX_CONCURRENT = 2;
     public static final int DEFAULT_MAX_ATTEMPTS = DownloadTask.DEFAULT_MAX_ATTEMPTS;
+
+    /**
+     * How many finished tasks stay addressable through {@link #task(String)}.
+     * Older finished tasks are pruned; successful duplicate keys survive in
+     * the separate saved-key set until its own capacity is reached.
+     */
+    public static final int MAX_FINISHED_TASKS = 100;
 
     /** The outcome of {@link #enqueue(MediaItem)}. */
     public enum EnqueueStatus {
@@ -156,6 +164,7 @@ public final class DownloadQueue {
         task.succeed(result);
         running.remove(task);
         saved.remember(task.duplicateKey());
+        pruneFinished();
     }
 
     /**
@@ -174,6 +183,7 @@ public final class DownloadQueue {
             waiting.addLast(task);
             return true;
         }
+        pruneFinished();
         return false;
     }
 
@@ -193,18 +203,24 @@ public final class DownloadQueue {
             waiting.remove(task);
         }
         task.cancel();
+        pruneFinished();
         return true;
     }
 
     /**
      * Manually retries a failed task when its error is recoverable and it has
-     * attempts left.
+     * attempts left. Refused when the same item is already waiting, running or
+     * saved, so a retry can never create a second active copy.
      *
      * @return whether the task was requeued
      */
     public synchronized boolean retry(String taskId) {
         DownloadTask task = tasks.get(taskId);
         if (task == null || waiting.size() >= maxWaiting || !task.canRetry()) {
+            return false;
+        }
+        String key = task.duplicateKey();
+        if (saved.isSeen(key) || isActive(key)) {
             return false;
         }
         boolean requeued = task.retry();
@@ -253,6 +269,45 @@ public final class DownloadQueue {
         return saved.size();
     }
 
+    /**
+     * Remembers an already-saved duplicate key, for example one restored from
+     * persisted download history at startup.
+     *
+     * @return whether the key was new
+     */
+    public synchronized boolean rememberSaved(String duplicateKey) {
+        return saved.remember(duplicateKey);
+    }
+
+    /** Remembers an already-saved item for duplicate checks. */
+    public synchronized boolean rememberSaved(MediaItem item) {
+        if (item == null) {
+            throw new IllegalArgumentException("item must not be null");
+        }
+        return saved.remember(item);
+    }
+
+    /**
+     * Seeds duplicate detection from the successfully completed tasks in a
+     * repository restored after a restart. Failed and cancelled entries are
+     * ignored.
+     *
+     * @return the number of new saved keys remembered
+     */
+    public synchronized int seedSaved(DownloadRepository repository) {
+        if (repository == null) {
+            throw new IllegalArgumentException("repository must not be null");
+        }
+        int seeded = 0;
+        for (DownloadTask task : repository.history()) {
+            if (task.state() == DownloadState.DONE
+                    && saved.remember(task.duplicateKey())) {
+                seeded++;
+            }
+        }
+        return seeded;
+    }
+
     public int maxWaiting() {
         return maxWaiting;
     }
@@ -265,13 +320,19 @@ public final class DownloadQueue {
         return maxAttempts;
     }
 
-    /** Forgets every finished task and the duplicate history. */
+    /**
+     * Forgets every finished task and the duplicate history. Waiting and
+     * running tasks are kept, so clearing history never loses an in-flight
+     * download; task ids also keep increasing.
+     */
     public synchronized void clear() {
-        tasks.clear();
-        waiting.clear();
-        running.clear();
+        Iterator<Map.Entry<String, DownloadTask>> iterator = tasks.entrySet().iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next().getValue().state().isTerminal()) {
+                iterator.remove();
+            }
+        }
         saved.clear();
-        sequence = 0L;
     }
 
     private boolean isActive(String key) {
@@ -281,6 +342,26 @@ public final class DownloadQueue {
             }
         }
         return false;
+    }
+
+    /** Drops the oldest finished tasks while keeping the map bounded. */
+    private void pruneFinished() {
+        int finished = 0;
+        for (DownloadTask task : tasks.values()) {
+            if (task.state().isTerminal()) {
+                finished++;
+            }
+        }
+        if (finished <= MAX_FINISHED_TASKS) {
+            return;
+        }
+        Iterator<Map.Entry<String, DownloadTask>> iterator = tasks.entrySet().iterator();
+        while (finished > MAX_FINISHED_TASKS && iterator.hasNext()) {
+            if (iterator.next().getValue().state().isTerminal()) {
+                iterator.remove();
+                finished--;
+            }
+        }
     }
 
     private DownloadTask requireRunning(String taskId) {

@@ -174,8 +174,15 @@ public final class MediaNaming {
         if (item == null) {
             throw new IllegalArgumentException("item must not be null");
         }
-        if (!item.mimeType().trim().isEmpty()) {
-            return item.mimeType().trim();
+        String declared = item.mimeType().trim();
+        if (!declared.isEmpty()) {
+            int parameter = declared.indexOf(';');
+            if (parameter >= 0) {
+                declared = declared.substring(0, parameter).trim();
+            }
+            if (!declared.isEmpty()) {
+                return declared.toLowerCase(Locale.ROOT);
+            }
         }
         String extension = extensionFor(item);
         String mime = mimeForExtension(extension);
@@ -199,7 +206,9 @@ public final class MediaNaming {
      * Builds a deterministic, safe file name:
      * {@code hmx_<owner>_<id>_<kind>_<timestamp>.<ext>}. Missing metadata is
      * replaced by a stable fallback; a missing id becomes a short hash of the
-     * duplicate key, so two different media never collide by accident.
+     * duplicate key. An id that sanitisation had to change also gets that
+     * short hash appended, so two different media ids cannot collapse to the
+     * same file name.
      */
     public static String buildFileName(MediaItem item, long timestampMs) {
         if (item == null) {
@@ -211,10 +220,16 @@ public final class MediaNaming {
         if (timestampMs < 0L) {
             throw new IllegalArgumentException("timestamp must not be negative");
         }
+        String key = duplicateKey(item);
         String owner = sanitizeSegment(item.owner());
-        String id = item.id().trim().isEmpty()
-                ? shortHash(duplicateKey(item))
-                : sanitizeSegment(item.id());
+        String rawId = item.id().trim();
+        String id;
+        if (rawId.isEmpty()) {
+            id = shortHash(key);
+        } else {
+            String safeId = sanitizeSegment(rawId);
+            id = safeId.equals(rawId) ? safeId : safeId + '_' + shortHash(key);
+        }
         String kind = item.kind().name().toLowerCase(Locale.ROOT);
         String extension = extensionFor(item);
         String name = "hmx_" + owner + '_' + id + '_' + kind + '_' + timestampMs
@@ -226,7 +241,7 @@ public final class MediaNaming {
             String shortOwner = owner.length() > ownerBudget
                     ? owner.substring(0, ownerBudget)
                     : owner;
-            name = "hmx_" + shortOwner + '_' + shortHash(duplicateKey(item)) + '_'
+            name = "hmx_" + shortOwner + '_' + shortHash(key) + '_'
                     + kind + '_' + timestampMs + '.' + extension;
         }
         return name;

@@ -43,6 +43,20 @@ public final class MediaItem {
         this.expiresAtEpochMs = builder.expiresAtEpochMs;
     }
 
+    /** Copy constructor that replaces only the expiry. */
+    private MediaItem(MediaItem source, long expiresAtEpochMs) {
+        this.id = source.id;
+        this.kind = source.kind;
+        this.url = source.url;
+        this.mimeType = source.mimeType;
+        this.sizeBytes = source.sizeBytes;
+        this.owner = source.owner;
+        this.width = source.width;
+        this.height = source.height;
+        this.children = source.children;
+        this.expiresAtEpochMs = expiresAtEpochMs;
+    }
+
     public String id() {
         return id;
     }
@@ -99,6 +113,21 @@ public final class MediaItem {
     }
 
     /**
+     * Returns this item with a different expiry, or this item when unchanged.
+     * Carousel expansion uses this to apply a container's lifetime to its
+     * children.
+     */
+    public MediaItem withExpiresAtEpochMs(long value) {
+        if (value < 0L) {
+            throw new IllegalArgumentException("expiry must not be negative");
+        }
+        if (value == expiresAtEpochMs) {
+            return this;
+        }
+        return new MediaItem(this, value);
+    }
+
+    /**
      * Returns why this item cannot be downloaded right now, or {@code null}
      * when it can. The queue calls this at enqueue time so an expired story
      * never occupies a slot.
@@ -110,6 +139,9 @@ public final class MediaItem {
         if (kind.isContainer()) {
             if (children.isEmpty()) {
                 return DownloadError.INVALID_MEDIA;
+            }
+            if (isExpired(nowMs)) {
+                return DownloadError.EXPIRED_MEDIA;
             }
             for (MediaItem child : children) {
                 DownloadError childProblem = child.downloadability(nowMs);
@@ -223,6 +255,11 @@ public final class MediaItem {
             }
             if (child.kind().isContainer()) {
                 throw new IllegalArgumentException("carousel children cannot be carousels");
+            }
+            if (child.kind() != DownloadKind.PHOTO
+                    && child.kind() != DownloadKind.VIDEO) {
+                throw new IllegalArgumentException(
+                        "carousel children must be photos or videos");
             }
             this.children.add(child);
             return this;

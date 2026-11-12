@@ -40,7 +40,7 @@ public final class InMemoryDownloadRepository implements DownloadRepository {
             throw new IllegalArgumentException(
                     "only finished tasks can be stored, found " + task.state());
         }
-        entries.add(0, task);
+        entries.add(0, task.snapshot());
         while (entries.size() > capacity) {
             entries.remove(entries.size() - 1);
         }
@@ -48,7 +48,7 @@ public final class InMemoryDownloadRepository implements DownloadRepository {
 
     @Override
     public synchronized List<DownloadTask> history() {
-        return Collections.unmodifiableList(new ArrayList<DownloadTask>(entries));
+        return Collections.unmodifiableList(snapshots(entries));
     }
 
     @Override
@@ -57,8 +57,7 @@ public final class InMemoryDownloadRepository implements DownloadRepository {
             throw new IllegalArgumentException("limit must not be negative");
         }
         int size = Math.min(limit, entries.size());
-        return Collections.unmodifiableList(new ArrayList<DownloadTask>(
-                entries.subList(0, size)));
+        return Collections.unmodifiableList(snapshots(entries.subList(0, size)));
     }
 
     @Override
@@ -87,5 +86,13 @@ public final class InMemoryDownloadRepository implements DownloadRepository {
     @Override
     public synchronized void clear() {
         entries.clear();
+    }
+
+    private static List<DownloadTask> snapshots(List<DownloadTask> source) {
+        List<DownloadTask> copy = new ArrayList<DownloadTask>(source.size());
+        for (DownloadTask task : source) {
+            copy.add(task.snapshot());
+        }
+        return copy;
     }
 }
