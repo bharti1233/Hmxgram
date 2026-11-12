@@ -150,6 +150,7 @@ while IFS= read -r path; do
     docs/HMX_INSTA_M2_ANDROID_SHELL.md) ;;
     docs/HMX_INSTA_M2_DEVICE_CHECKLIST.md) ;;
     docs/HMX_INSTA_M3_DOWNLOADER_UI.md) ;;
+    docs/HMX_INSTA_M4_INSTAGRAM_MEDIA.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;
