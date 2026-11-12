@@ -1,0 +1,300 @@
+{
+  "schema": 1,
+  "kind": "hmx-insta-protected-methods",
+  "status": "m0-record-only",
+  "wired_into_ci": false,
+  "note": "Record of the Instagram surfaces new work must not change. The enforcing verifier is milestone M6; nothing here is executed yet.",
+  "baseline": {
+    "branch": "backup/hmx-insta-last-known-good-454",
+    "commit": "a5bace00e84094f06622ff8f47ae60990ded8e09",
+    "tree": "9e02ce3824586f01ed165686dcda08100c8495dc",
+    "release": "debug-test-43091674732-1",
+    "apk_asset": "hmx-insta-454.0.0.54.77-test.apk",
+    "apk_sha256": "6de31b8eb9845ccd27cdd5ec6d140feaafbc943cc04c26481cde4594a7b0df65",
+    "apk_size": 164081474,
+    "package": "com.instagram.android",
+    "version_name": "454.0.0.54.77",
+    "version_code": 386014712,
+    "applied_patches": 14
+  },
+  "resolution": {
+    "method": "morphe-fingerprint-resolved-on-each-apk",
+    "hardcode_obfuscated_names": false,
+    "compare": "normalized-method-body-equality",
+    "normalize": [
+      "access flags",
+      "parameter types",
+      "return type",
+      "opcode sequence",
+      "register operands",
+      "literal values",
+      "reference class/name/type",
+      "string values",
+      "payload arrays"
+    ],
+    "ignore": [
+      "instruction offsets",
+      "debug info",
+      "line numbers",
+      "code item layout"
+    ],
+    "fail_closed": true,
+    "ambiguous_anchor": "fail"
+  },
+  "exceptions": [
+    {
+      "id": "tier2.row_binding.observe",
+      "milestone": "M3",
+      "enabled_by_default": true,
+      "surface": "list.row_binding",
+      "allowed_diff": "exactly one invoke-static/range {holder, model} inserted at the first instruction of the resolved void bind(Holder, Model) method; no other added, removed or reordered instruction",
+      "callee": "com.feurstagram.extension.downloader.DownloaderBinder.observe(Ljava/lang/Object;Ljava/lang/Object;)V",
+      "requirements": [
+        "must catch everything and never throw into Instagram",
+        "read-only: no mutation of model, holder, row or layout",
+        "inert when the downloader master switch is off",
+        "in-context buttons only in the holder's own view group and only when explicitly enabled"
+      ]
+    },
+    {
+      "id": "ghost.network.guard",
+      "milestone": "M5",
+      "enabled_by_default": false,
+      "surface": "network.request_lifecycle",
+      "allowed_diff": "exactly one invoke-static/range call inserted at the URI-load site of the resolved start-request method; no other added, removed or reordered instruction",
+      "callee": "com.feurstagram.extension.ghost.GhostNetwork.guard(Ljava/net/URI;)V",
+      "requirements": [
+        "short-circuit on one volatile boolean before any allocation, reflection or preference read",
+        "must never throw into the request path",
+        "inert for every request when the master switch is off",
+        "requires its own device A/B against the baseline before release",
+        "if the A/B is not clean, ghost mode is dropped rather than shipped"
+      ]
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "auth.key_hash_allowlist",
+      "category": "authentication",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "stable": "class contains string \"Invalid SHA256 key hash\"",
+          "shape": "static boolean(X.3uq)"
+        },
+        {
+          "stable": "same class family",
+          "shape": "static boolean(X.3uq, X.3uq, Z) or instance boolean(CallerIdentity, Z) reading both key hashes from its first parameter"
+        }
+      ],
+      "baseline_patch": "Signature check bypass (disabled by default in HMX builds; must stay disabled)"
+    },
+    {
+      "id": "auth.signature_identity",
+      "category": "authentication",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "stable": "AndroidManifest signature + platform PackageManager"
+        }
+      ],
+      "baseline_patch": null
+    },
+    {
+      "id": "network.request_lifecycle",
+      "category": "network",
+      "absolute_for_downloader": true,
+      "allowed_new_changes": "none for downloader; ghost.network.guard exception only",
+      "anchors": [
+        {
+          "class": "Lcom/instagram/api/tigon/TigonServiceLayer;",
+          "stable": "name starts with startRequest and body loads a java.net.URI field",
+          "observed": [
+            "startRequest(LX/03xt;LX/03yf;LX/03zp;)LX/0Bhm;",
+            "startRequestInternal(LX/03xt;LX/03yf;LX/03zp;)LX/0Bhm;"
+          ]
+        }
+      ],
+      "baseline_patch": "Network content blocking (inserts Block.throwIfBlocked(URI)V after the URI load)"
+    },
+    {
+      "id": "feed.loading_request",
+      "category": "feed_loading",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "stable": "class contains \"Request{mReason=\" and \", mInstanceNumber=\"",
+          "shape": "constructor of that class"
+        },
+        {
+          "stable": "method contains \"pagination_source\" and \"FEED_REQUEST_SENT\"",
+          "shape": "header map assembly"
+        }
+      ],
+      "baseline_patch": "Limit feed to following profiles (wraps the header-map store in the constructor)"
+    },
+    {
+      "id": "media.parsing",
+      "category": "media_parsing",
+      "absolute": true,
+      "allowed_new_changes": "none, ever",
+      "anchors": [
+        {
+          "stable": "method name contains parseFromJson and strings media_or_ad, clips_netego, stories_netego, ad4ad",
+          "surface": "feed item type dispatch"
+        },
+        {
+          "stable": "returns Lcom/instagram/feed/media/Media; and contains Media:null_pointer_exception and Media:array_out_of_bounds_exception",
+          "surface": "media entry parser (inline variant calls the field dispatcher and hashes field names)"
+        },
+        {
+          "stable": "same return type and error strings, calls a codec of shape (UserSession, parser, Z)Z",
+          "surface": "media codec wrapper"
+        },
+        {
+          "stable": "method name equals unsafeParseFromJson",
+          "surface": "unsafe parse entry"
+        },
+        {
+          "stable": "static call returning void with parameters (parser, String, Map), or String.hashCode on a loaded field name",
+          "surface": "per-field dispatch and field-name hash"
+        }
+      ],
+      "baseline_patch": "Feed item filtering (rewrites the unit type token, filters media, hooks every field name)",
+      "prohibition": "The downloader must never obtain media by hooking the parser. Tier 1 uses the system share intent; Tier 2/3 use the row model."
+    },
+    {
+      "id": "session.bootstrap",
+      "category": "session_initialization",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "class": "Lcom/instagram/mainactivity/LauncherActivity;",
+          "observed": "onCreate(Landroid/os/Bundle;)V, A05(Landroid/content/Intent;JZ)V, A06(Landroid/content/Intent;Lcom/instagram/mainactivity/LauncherActivity;Z)V"
+        },
+        {
+          "class": "Lcom/instagram/mainactivity/InstagramMainActivity;",
+          "observed": "233 methods at baseline; whole class frozen"
+        },
+        {
+          "stable": "application class declared by AndroidManifest android:name"
+        }
+      ],
+      "baseline_patch": null,
+      "prohibition": "No startup hook, no ContentProvider initialisation, no process-wide Application subclass."
+    },
+    {
+      "id": "story.viewer",
+      "category": "story",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "class": "Linstagram/features/stories/fragment/ReelViewerFragment;",
+          "observed": "556 methods at baseline; whole class frozen"
+        },
+        {
+          "stable": "void method containing fragment_not_visible and story_pog_blocked"
+        },
+        {
+          "stable": "boolean method containing ENVIRONMENT_RESUMED, fragment_resumed, feed_visible"
+        },
+        {
+          "stable": "void method containing MainFeedReelTrayController.preloadAndLaunchViewer"
+        },
+        {
+          "stable": "void method containing ReelViewerFragment.BACK_STACK_NAME"
+        }
+      ],
+      "baseline_patch": "Quoicouview mode",
+      "note": "The story download action lives in the HMX story-tray row rendered by the extension, not in Instagram's viewer."
+    },
+    {
+      "id": "list.row_binding",
+      "category": "list_binding",
+      "absolute": false,
+      "allowed_new_changes": "tier2.row_binding.observe only",
+      "anchors": [
+        {
+          "stable": "constructor with one parameter containing IgRecyclerViewAdapter.mDefinitions",
+          "surface": "adapter constructor"
+        },
+        {
+          "stable": "inside a row definition: void bind(Holder, Model) where Holder is the holder type",
+          "surface": "row binder — the only new insertion point"
+        }
+      ],
+      "baseline_patch": "Quoicouview mode (adds its own row definition and list-update call)"
+    },
+    {
+      "id": "navigation.back",
+      "category": "navigation",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "stable": "zero-arg boolean method containing NavigationController.onBackPress"
+        }
+      ],
+      "baseline_patch": "Hidden Home in Back history"
+    },
+    {
+      "id": "ui.toast",
+      "category": "ui",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "stable": "zero-arg void show() on a class whose superclass is android/widget/Toast"
+        }
+      ],
+      "baseline_patch": "Popup hiding"
+    },
+    {
+      "id": "ui.tabs",
+      "category": "ui",
+      "absolute": true,
+      "allowed_new_changes": "none",
+      "anchors": [
+        {
+          "stable": "void method containing MainTabControllerImpl.onTabChanged: new "
+        },
+        {
+          "stable": "onCreate(Bundle) containing IgSwipeableTabHostFragment.onCreate and EAGER_FRAGMENT_LOADING"
+        },
+        {
+          "stable": "tab-bar binder constructor with one android.view.View parameter"
+        },
+        {
+          "stable": "trayEntryTypeGetter"
+        },
+        {
+          "stable": "void method with one parameter containing notes_tray_bind_"
+        }
+      ],
+      "baseline_patch": "Quoicouview mode, Settings entry point, Suggested accounts in the story tray, Notes tray"
+    },
+    {
+      "id": "branding.identity",
+      "category": "branding",
+      "absolute": true,
+      "allowed_new_changes": "none (baseline branding is canonical)",
+      "anchors": [
+        {
+          "stable": "AndroidManifest label/icon and the HMX Insta app name patch"
+        }
+      ],
+      "baseline_patch": "HMX Insta app name"
+    }
+  ],
+  "policy": {
+    "auth_session_feed_media": "absolute no-change",
+    "new_hooks": "must be declared here before implementation",
+    "default_state": "every new functional patch and preference is default-off until its device verification passes",
+    "signature_bypass": "stays disabled by default; never enabled as a login workaround"
+  }
+}
