@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# M1 downloader-core unit tests. Plain JDK only: no Android SDK, no Gradle, no
+# device, no network. The core must compile with --release 11 and pass every
+# assertion in DownloaderCoreTest.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+
+MAIN_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
+TEST_DIR="extensions/extension/src/test/java/com/feurstagram/extension/downloader/core"
+
+mapfile -t MAIN_SOURCES < <(find "$MAIN_DIR" -maxdepth 1 -type f -name '*.java' | LC_ALL=C sort)
+mapfile -t TEST_SOURCES < <(find "$TEST_DIR" -maxdepth 1 -type f -name '*.java' | LC_ALL=C sort)
+
+if [ "${#MAIN_SOURCES[@]}" -eq 0 ]; then
+  echo "ERROR: no downloader-core sources under $MAIN_DIR" >&2
+  exit 1
+fi
+if [ "${#TEST_SOURCES[@]}" -eq 0 ]; then
+  echo "ERROR: no downloader-core tests under $TEST_DIR" >&2
+  exit 1
+fi
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/hmx-downloader-core.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/classes"
+
+echo "== Compiling downloader core (--release 11, -Werror) =="
+echo "   core sources: ${#MAIN_SOURCES[@]}"
+echo "   test sources: ${#TEST_SOURCES[@]}"
+javac --release 11 -encoding UTF-8 -Xlint:all -Werror \
+  -d "$WORK/classes" "${MAIN_SOURCES[@]}" "${TEST_SOURCES[@]}"
+
+echo
+echo "== Running downloader core tests =="
+java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderCoreTest
+
+echo
+echo "Downloader core logic tests passed."
