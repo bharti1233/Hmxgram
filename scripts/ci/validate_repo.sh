@@ -44,8 +44,9 @@ for f in \
   scripts/ci/test_protected_methods.sh \
   scripts/ci/test_downloader_logic.sh \
   scripts/ci/validate_features.sh \
-  scripts/ci/test_m1_isolation.sh \
-  docs/HMX_INSTA_M1_DOWNLOADER_CORE.md
+  scripts/ci/test_downloader_isolation.sh \
+  docs/HMX_INSTA_M1_DOWNLOADER_CORE.md \
+  docs/HMX_INSTA_M2_ANDROID_SHELL.md
  do
   if [ -f "$f" ]; then note "ok: $f"; else bad "missing required file: $f"; fi
 done
@@ -98,7 +99,7 @@ else
 fi
 
 note "== Executable modes =="
-for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/ci/verify_protected_methods.py scripts/ci/test_protected_methods.sh scripts/ci/test_downloader_logic.sh scripts/ci/validate_features.sh scripts/ci/test_m1_isolation.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
+for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/ci/verify_protected_methods.py scripts/ci/test_protected_methods.sh scripts/ci/test_downloader_logic.sh scripts/ci/validate_features.sh scripts/ci/test_downloader_isolation.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"
   if [ "$mode" = "100755" ]; then note "ok: $f is executable in git"; else bad "$f must be mode 100755 (found $mode)"; fi
 done
@@ -194,7 +195,7 @@ fi
 for needle in \
   'scripts/ci/test_downloader_logic.sh' \
   'scripts/ci/validate_features.sh' \
-  'scripts/ci/test_m1_isolation.sh'
+  'scripts/ci/test_downloader_isolation.sh'
 do
   if grep -qF "$needle" .github/workflows/ci.yml; then
     note "ok: ci.yml runs $needle"
@@ -204,9 +205,9 @@ do
 done
 
 if grep -qF 'fetch-depth: 0' .github/workflows/ci.yml; then
-  note "ok: ci.yml fetches history for the M1 baseline check"
+  note "ok: ci.yml fetches history for the downloader baseline check"
 else
-  bad "ci.yml must use actions/checkout fetch-depth: 0 for test_m1_isolation.sh"
+  bad "ci.yml must use actions/checkout fetch-depth: 0 for test_downloader_isolation.sh"
 fi
 
 # The build ref allowlist must stay exact: main plus the v2 milestone branch.

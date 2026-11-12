@@ -5,11 +5,17 @@ All notable changes to Feurstagram should be documented in this file.
 ## Unreleased
 
 ### Added
-- **Downloader core (M1, not yet connected to the UI).** Pure-Java media models,
-  bounded download queue with retry and duplicate policy, in-memory history and
-  storage plans under `extensions/.../downloader/core`, with plain-JDK unit tests
-  and static isolation gates. No Instagram code, patch, permission or manifest
-  entry changed; the feature stays invisible until M2.
+- **Downloader share target (M2, draft, not merged into `main`).** An invisible
+  share activity saves shared photos and videos to `Pictures/HMXInsta` and
+  `Movies/HMXInsta`, with a bounded worker queue, MediaStore `IS_PENDING`
+  publishing, preferences-backed history and duplicate detection, audio
+  extraction and notifications. The share-target patch is default-off; the
+  Instagram integration, login, auth, session and feed code are unchanged.
+- **Downloader core (M1).** Pure-Java media models, bounded download queue with
+  retry and duplicate policy, in-memory history and storage plans under
+  `extensions/.../downloader/core`, with plain-JDK unit tests and static
+  isolation gates. `content://` share sources and the versioned history codec
+  landed with M2.
 
 ## v454-0-0-54-77
 
