@@ -179,6 +179,9 @@ explicitly:
   (default `false`, so no existing build changes);
 * the switch applies the downloader's two own patches, the share target and
   the media observer;
+* a second switch, `enable_ghost`, applies the "Ghost Mode settings" patch on
+  its own, so a build that only needs the downloader does not carry the
+  privacy screen;
 * when it is enabled the patch-report expectation switches to the 16-name
   list and `MIN_APPLIED_PATCHES` becomes 16, so the build **fails** if
   either patch did not apply;
