@@ -5,6 +5,12 @@ All notable changes to Feurstagram should be documented in this file.
 ## Unreleased
 
 ### Added
+- **Instagram media integration (M4, draft, not merged).** A default-off hook
+  records the media the user browses, so the downloader can save it from
+  inside the app instead of only through the share sheet. The observation is
+  read-only: it reads a model Instagram already parsed, touches no view,
+  scans no hierarchy and intercepts no request. The downloader screen lists
+  what was seen and queues it on demand.
 - **Downloader screen (M3, draft, not merged).** A dedicated "HMX Insta
   Downloader" screen shows the real queue and history of the download engine:
   queued, running, finished, failed and cancelled items, per-task progress,
