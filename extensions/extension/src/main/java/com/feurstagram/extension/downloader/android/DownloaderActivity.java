@@ -15,8 +15,12 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.feurstagram.extension.downloader.core.DownloadKind;
+import com.feurstagram.extension.downloader.core.DownloadQueue;
 import com.feurstagram.extension.downloader.core.DownloadState;
 import com.feurstagram.extension.downloader.core.DownloaderRow;
+import com.feurstagram.extension.downloader.core.MediaItem;
+import com.feurstagram.extension.downloader.core.ObservedMedia;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +52,7 @@ public final class DownloaderActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<DownloaderRow> rows = new ArrayList<DownloaderRow>();
+    private final List<ObservedMedia> observed = new ArrayList<ObservedMedia>();
 
     private HmxDownloader downloader;
     private ListView list;
@@ -176,15 +181,20 @@ public final class DownloaderActivity extends Activity {
     }
 
     private void refresh() {
+        List<ObservedMedia> seen = MediaObserver.observed();
         List<DownloaderRow> current = downloader.rows();
-        if (sameRows(current)) {
+        if (sameRows(current) && sameObserved(seen)) {
             return;
         }
         rows.clear();
         rows.addAll(current);
+        observed.clear();
+        observed.addAll(seen);
         adapter.notifyDataSetChanged();
-        empty.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
-        list.setVisibility(rows.isEmpty() ? View.GONE : View.VISIBLE);
+        empty.setVisibility(rows.isEmpty() && observed.isEmpty()
+                ? View.VISIBLE : View.GONE);
+        list.setVisibility(rows.isEmpty() && observed.isEmpty()
+                ? View.GONE : View.VISIBLE);
     }
 
     /**
@@ -203,6 +213,19 @@ public final class DownloaderActivity extends Activity {
         return true;
     }
 
+    /** Whether the observed media are the ones already shown. */
+    private boolean sameObserved(List<ObservedMedia> current) {
+        if (current.size() != observed.size()) {
+            return false;
+        }
+        for (int index = 0; index < current.size(); index++) {
+            if (!current.get(index).equals(observed.get(index))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void act(String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
@@ -211,17 +234,28 @@ public final class DownloaderActivity extends Activity {
         return (int) (value * getResources().getDisplayMetrics().density);
     }
 
-    /** Renders the engine's rows. */
+    /** Renders the engine's rows and the media the user has been looking at. */
     private final class RowAdapter extends BaseAdapter {
 
-        @Override
-        public int getCount() {
-            return rows.size();
+        private static final int TYPE_OBSERVED = 0;
+        private static final int TYPE_HEADER = 1;
+        private static final int TYPE_DOWNLOAD = 2;
+
+        private int total() {
+            return observed.size() + (rows.isEmpty() ? 0 : 1 + rows.size());
         }
 
         @Override
-        public DownloaderRow getItem(int position) {
-            return rows.get(position);
+        public int getCount() {
+            return total();
+        }
+
+        @Override
+        public Object getItem(int position) {
+            if (position < observed.size()) {
+                return observed.get(position);
+            }
+            return rows.get(position - observed.size() - 1);
         }
 
         @Override
@@ -230,14 +264,86 @@ public final class DownloaderActivity extends Activity {
         }
 
         @Override
+        public int getViewTypeCount() {
+            return 3;
+        }
+
+        @Override
+        public int getItemViewType(int position) {
+            if (position < observed.size()) {
+                return TYPE_OBSERVED;
+            }
+            if (position == observed.size()) {
+                return TYPE_HEADER;
+            }
+            return TYPE_DOWNLOAD;
+        }
+
+        @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            final DownloaderRow row = rows.get(position);
+            int type = getItemViewType(position);
+            if (type == TYPE_OBSERVED) {
+                return observedView(position, convertView);
+            }
+            if (type == TYPE_HEADER) {
+                return headerView(convertView);
+            }
+            final DownloaderRow row = rows.get(position - observed.size() - 1);
             LinearLayout holder = (LinearLayout) convertView;
             if (holder == null) {
                 holder = buildRow();
             }
             bindRow(holder, row);
             return holder;
+        }
+
+        private View observedView(int position, View convertView) {
+            final ObservedMedia media = observed.get(position);
+            LinearLayout holder = (LinearLayout) convertView;
+            if (holder == null) {
+                holder = new LinearLayout(DownloaderActivity.this);
+                holder.setOrientation(LinearLayout.VERTICAL);
+                holder.setPadding(dp(8), dp(8), dp(8), dp(8));
+
+                TextView name = new TextView(DownloaderActivity.this);
+                name.setTextSize(15f);
+                holder.addView(name);
+
+                TextView status = new TextView(DownloaderActivity.this);
+                status.setTextSize(13f);
+                status.setTextColor(COLOR_MUTED);
+                holder.addView(status);
+
+                Button download = new Button(DownloaderActivity.this);
+                download.setText("Download");
+                download.setTextSize(12f);
+                holder.addView(download);
+            }
+            TextView name = (TextView) holder.getChildAt(0);
+            TextView status = (TextView) holder.getChildAt(1);
+            Button download = (Button) holder.getChildAt(2);
+
+            name.setText(observedTitle(media));
+            status.setText(observedSubtitle(media));
+            download.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    onDownloadObserved(media);
+                }
+            });
+            return holder;
+        }
+
+        private View headerView(View convertView) {
+            TextView header = (TextView) convertView;
+            if (header == null) {
+                header = new TextView(DownloaderActivity.this);
+                header.setTextSize(13f);
+                header.setTextColor(COLOR_MUTED);
+                header.setPadding(dp(8), dp(12), dp(8), dp(4));
+            }
+            header.setText("Downloads");
+            return header;
         }
 
         private LinearLayout buildRow() {
@@ -318,8 +424,74 @@ public final class DownloaderActivity extends Activity {
         }
     }
 
-    private void onRetry(DownloaderRow row) {
-        if (downloader.retry(row.id())) {
+    /** The title of an observed media in the list. */
+    private String observedTitle(ObservedMedia media) {
+        if (media.kind().isContainer()) {
+            return "Carousel (" + media.children().size() + " items)";
+        }
+        return media.kind() == DownloadKind.VIDEO ? "Video" : "Photo";
+    }
+
+    /** The subtitle of an observed media in the list. */
+    private String observedSubtitle(ObservedMedia media) {
+        StringBuilder text = new StringBuilder();
+        if (media.width() > 0 && media.height() > 0) {
+            text.append(media.width()).append('×').append(media.height());
+        }
+        if (media.owner() != null && !media.owner().trim().isEmpty()) {
+            if (text.length() > 0) {
+                text.append(" · ");
+            }
+            text.append('@').append(media.owner());
+        }
+        if (media.hasAudio() && media.kind() == DownloadKind.VIDEO) {
+            if (text.length() > 0) {
+                text.append(" · ");
+            }
+            text.append("has audio");
+        }
+        if (text.length() == 0) {
+            text.append("Seen in Instagram");
+        }
+        return text.toString();
+    }
+
+    /**
+     * Queues an observed media. A carousel is queued as its children: the
+     * engine refuses a container as it is.
+     */
+    private void onDownloadObserved(ObservedMedia media) {
+        if (media.kind().isContainer()) {
+            int added = 0;
+            for (ObservedMedia child : media.children()) {
+                if (enqueueObserved(child)) {
+                    added++;
+                }
+            }
+            act(added == 0 ? "Nothing to download" : "Added " + added + " items");
+            refresh();
+            return;
+        }
+        act(enqueueObserved(media) ? "Added to the queue" : "Cannot be downloaded");
+        refresh();
+    }
+
+    private boolean enqueueObserved(ObservedMedia media) {
+        MediaItem item;
+        try {
+            item = media.toMediaItem();
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+        try {
+            DownloadQueue.EnqueueResult result = downloader.enqueue(item);
+            return result.isAdded();
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private void onRetry(DownloaderRow row) {        if (downloader.retry(row.id())) {
             act("Retrying");
         } else {
             act("This download cannot be retried");

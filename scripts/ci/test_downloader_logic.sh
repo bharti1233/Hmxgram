@@ -36,6 +36,7 @@ echo
 echo "== Running downloader core tests =="
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderCoreTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderUiTest
+java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.MediaObservationTest
 
 echo
 echo "Downloader core logic tests passed."
