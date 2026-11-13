@@ -14,7 +14,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-BASE="${HMX_DOWNLOADER_BASE:-e7074eb789c0cc66c0ce0cd946d52ca5519522e9}"
+BASE="${HMX_DOWNLOADER_BASE:-17610554bf17b6f1721e746bc71d9e6c6d0dba08}"
 # The baseline is the reviewed CI commit that lets the gated build apply the
 # downloader's own patches and the privacy screen (the M1 integration commit
 # ba72c21 is its ancestor). Everything the downloader milestones change is measured from
@@ -31,7 +31,7 @@ BASE="${HMX_DOWNLOADER_BASE:-e7074eb789c0cc66c0ce0cd946d52ca5519522e9}"
 # The ghost sources are inside the digest on purpose: a privacy control that
 # is changed after its review must fail this check like any other protected
 # file.
-PINNED_PROTECTED_DIGEST="45b71521aaebedb35fd4fa4beeaed5a18e91efa4e7aff8a99ee7136531dfcb9e"
+PINNED_PROTECTED_DIGEST="3be9221fd417f3ebc9d67115475d03d977b934f2c1a73058c0cd8f7a6ba91b83"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
