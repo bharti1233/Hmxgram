@@ -239,6 +239,16 @@ else
   bad "the downloader share target must only be enabled through the explicit downloader build switch"
 fi
 
+if grep -qF 'enable_incontext:' .github/workflows/apk.yml && \
+   grep -qF 'args+=(--incontext)' .github/workflows/apk.yml && \
+   grep -qF 'EXPECTED_PATCHES_WITH_INCONTEXT' .github/workflows/apk.yml && \
+   grep -qF -- '--incontext) ENABLE_INCONTEXT=1 ;;' build.sh && \
+   grep -qF 'ARGS+=(-e "In-context download actions")' build.sh; then
+  note "ok: the in-context action is only reachable through its explicit build switch"
+else
+  bad "the in-context action must only be enabled through the explicit in-context build switch"
+fi
+
 if grep -qF 'bash "$VALIDATE_INPUT"' build.sh && \
    grep -qF 'bash "$VALIDATE_BUNDLE"' build.sh && \
    grep -qF 'bash "$VALIDATE_STANDALONE" --stage merge' build.sh && \

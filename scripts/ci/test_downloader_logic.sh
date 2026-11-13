@@ -51,6 +51,7 @@ echo "== Running downloader core tests =="
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderCoreTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderUiTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.MediaObservationTest
+java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.InContextActionTest
 
 echo
 echo "== Running the ghost-mode policy tests =="
