@@ -2,6 +2,7 @@ package com.feurstagram.extension.downloader.android;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Resources;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -247,10 +248,24 @@ public final class InContextDownloadOverlay {
         }
 
         private int resolveId(String name) {
-            // The resources of the running package: the original app or the
-            // clone. Never a hardcoded Instagram package name.
-            return getResources().getIdentifier(
-                    name, "id", getContext().getPackageName());
+            Resources resources = getResources();
+            // Ask the resource table which package it is actually under. In a
+            // clone build that is still the original resource package, while
+            // getPackageName() is the new one. No package name is hardcoded.
+            String resourcePackage = getContext().getPackageName();
+            try {
+                int icon = getContext().getApplicationInfo().icon;
+                if (icon != 0) {
+                    resourcePackage = resources.getResourcePackageName(icon);
+                }
+            } catch (RuntimeException ignored) {
+                // Fall back to the app package.
+            }
+            int id = resources.getIdentifier(name, "id", resourcePackage);
+            if (id == 0) {
+                id = resources.getIdentifier(name, "id", getContext().getPackageName());
+            }
+            return id;
         }
 
         // --- Drag and position -------------------------------------------------
