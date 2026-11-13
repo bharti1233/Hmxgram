@@ -43,6 +43,13 @@ CLASS_DESC_RE = re.compile(r"^  Class descriptor  : '(.*)'\s*$")
 INSTR_RE = re.compile(r"^([0-9a-f]+): [0-9a-f ]+\|([0-9a-f]{4}): (.*)$")
 CATCH_RANGE_RE = re.compile(r"^\s*(0x[0-9a-f]+) - (0x[0-9a-f]+)\s*$")
 HANDLER_RE = re.compile(r"^(\s*)handlers\s+: (0x[0-9a-f]+)\s*$")
+# A method or field header carries the byte address it lives at. The address is
+# layout: rebuilding a dex file moves every method in it, even the ones nobody
+# touched. The name and the descriptor are behaviour and stay compared.
+ADDRESSED_HEADER_RE = re.compile(r"^[0-9a-f]+:\s+\|\[[0-9a-f]+\]\s+(.*)$")
+# The source file index is the position of the original file in the dex string
+# table. It moves when the table is rebuilt; the file name itself is stable.
+SOURCE_FILE_RE = re.compile(r"^(\s*)source_file_idx\s+:\s+\d+\s+\((.*)\)\s*$")
 DEBUG_HEADER_RE = re.compile(r"^\s*(positions|locals)\s*:")
 NEXT_AFTER_DEBUG_RE = re.compile(
     r"^\s{6}(catches|name|type|access|code|registers|ins|outs|insns size)\s*:"
@@ -112,6 +119,16 @@ def normalize_class(lines):
         match = HANDLER_RE.match(line)
         if match:
             out.append("handlers %s" % ordinal_for(int(match.group(2), 16)))
+            continue
+
+        match = ADDRESSED_HEADER_RE.match(line)
+        if match:
+            out.append("header: %s" % match.group(1))
+            continue
+
+        match = SOURCE_FILE_RE.match(line)
+        if match:
+            out.append("%ssource_file: %s" % (match.group(1), match.group(2)))
             continue
 
         # Table indices are layout, not behaviour.
@@ -343,9 +360,28 @@ def self_test():
     changed_register[15] = "000102: 2170                                   |0001: monitor-enter v1\n"
     changed_access = list(base)
     changed_access[8] = "      access        : 0x0001 (PUBLIC)\n"
+    # A method header carries the byte address it lives at. Rebuilding a dex
+    # file moves every header in it, including the ones nobody touched.
+    base.append("0000a0:                                        |[0000a0] Lexample/Guard;.check:(I)Z\n")
+    base.append("    source_file_idx   : 1520 (Guard.java)\n")
+    moved_addresses = list(base)
+    moved_addresses[23] = (
+        "000900:                                        |[000900] Lexample/Guard;.check:(I)Z\n"
+    )
+    # The source file index is the position of the file in the dex string table.
+    moved_source_index = list(base)
+    moved_source_index[24] = "    source_file_idx   : 1615 (Guard.java)\n"
 
     checks = [
         ("identical after layout/debug noise", normalize_class(base) == normalize_class(same)),
+        (
+            "identical after the method addresses move",
+            normalize_class(base) == normalize_class(moved_addresses),
+        ),
+        (
+            "identical after the source file index moves",
+            normalize_class(base) == normalize_class(moved_source_index),
+        ),
         ("literal change detected", normalize_class(base) != normalize_class(changed_opcode)),
         ("register change detected", normalize_class(base) != normalize_class(changed_register)),
         ("access change detected", normalize_class(base) != normalize_class(changed_access)),
