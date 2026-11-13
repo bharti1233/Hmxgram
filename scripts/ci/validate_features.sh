@@ -252,6 +252,46 @@ else
   bad "missing in-context download patch: $INCONTEXT_PATCH"
 fi
 
+note "== In-context overlay owns its theme and fails safe =="
+INCONTEXT_OVERLAY="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android/InContextDownloadOverlay.java"
+if [ -f "$INCONTEXT_OVERLAY" ]; then
+  if grep -qF 'new ContextThemeWrapper(activity, CHIP_THEME)' "$INCONTEXT_OVERLAY"; then
+    note "ok: the chip is built with a theme the extension owns"
+  else
+    bad "the chip must be built with its own themed context"
+  fi
+  if grep -qE 'CHIP_THEME[[:space:]]*=[[:space:]]*android\.R\.style\.Theme_' "$INCONTEXT_OVERLAY"; then
+    note "ok: the chip theme is a framework theme"
+  else
+    bad "the chip theme must be a framework theme the host cannot corrupt"
+  fi
+  if grep -qF 'new Chip(root.getContext())' "$INCONTEXT_OVERLAY" || \
+     grep -qF 'new Chip(tabBar.getContext())' "$INCONTEXT_OVERLAY"; then
+    bad "the chip must never be built from the host window context"
+  else
+    note "ok: the chip is never built from the host window context"
+  fi
+  if grep -qE 'catch \(Throwable' "$INCONTEXT_OVERLAY"; then
+    note "ok: overlay installation is fail-safe"
+  else
+    bad "overlay installation must catch Throwable so it cannot crash Instagram"
+  fi
+  if grep -qF 'findActivity(' "$INCONTEXT_OVERLAY" && \
+     grep -qF 'OverlayLifecyclePolicy.decide(' "$INCONTEXT_OVERLAY"; then
+    note "ok: attachment waits for a real Activity context"
+  else
+    bad "attachment must wait for an Activity context through the lifecycle policy"
+  fi
+  if grep -qF 'MediaObserver.removeListener(this)' "$INCONTEXT_OVERLAY" && \
+     grep -qF 'handler.removeCallbacks(tick)' "$INCONTEXT_OVERLAY"; then
+    note "ok: the chip releases its listener and clock when detached"
+  else
+    bad "the chip must clean up when its host goes away"
+  fi
+else
+  bad "missing in-context overlay: $INCONTEXT_OVERLAY"
+fi
+
 note "== Existing features do not reference the downloader core =="
 core_refs="$(grep -RInE 'com\.feurstagram\.extension\.downloader\.core|downloader/core' \
   extensions/extension/src/main/java/com/feurstagram/extension \

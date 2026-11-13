@@ -4,6 +4,21 @@ All notable changes to Feurstagram should be documented in this file.
 
 ## Unreleased
 
+### Fixed
+- **M7 startup crash on the login screen (2026-11-13).** The in-context chip
+  was a plain `TextView` built from the window's own context. On the signed-out
+  launcher screen (`BloksSignedOutFragmentActivity`) that context carries
+  `Base.Theme.Launcher`, a partial splash theme whose text appearance points at
+  `igds_color_secondary_text` (`0x7f040820`) while the forced fallback theme
+  does not define it. `TextView.readTextAppearance` then threw
+  `UnsupportedOperationException: Failed to resolve attribute at index 7` and
+  Instagram died while loading the login screen. The chip is now built with a
+  `ContextThemeWrapper` over the Activity and a framework theme the extension
+  owns; attachment waits for a real Activity context, is wrapped in a
+  fail-safe `Throwable` guard, refuses duplicates, and releases its observer
+  and clock when the host window goes away. The standalone Downloader screen
+  and the Share Target are untouched.
+
 ### Added
 - **In-context download actions (M7, draft, not merged).** A draggable HMX
   "save" chip appears over supported feed posts, reels and story media and

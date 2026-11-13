@@ -1,22 +1,28 @@
 package com.feurstagram.extension.downloader.android;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.SharedPreferences;
 import android.content.res.Resources;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import com.feurstagram.extension.Settings;
 import com.feurstagram.extension.downloader.core.InContextAction;
 import com.feurstagram.extension.downloader.core.ObservedMedia;
+import com.feurstagram.extension.downloader.core.OverlayLifecyclePolicy;
 
 /**
  * The HMX-owned download action drawn over Instagram's window.
@@ -42,6 +48,20 @@ import com.feurstagram.extension.downloader.core.ObservedMedia;
  * is absent from builds that do not enable that patch.
  */
 public final class InContextDownloadOverlay {
+
+    private static final String TAG = "HmxDownloader";
+
+    /**
+     * The framework theme the chip is built with.
+     *
+     * <p>The host window cannot be used: the signed-out launcher screen runs
+     * {@code Base.Theme.Launcher}, a partial splash theme whose text appearance
+     * points at {@code igds_color_secondary_text} without that attribute being
+     * defined. A platform {@code TextView} built from that theme dies in
+     * {@code readTextAppearance} (crash 2026-11-13). A framework theme resolves
+     * every attribute the chip needs; the chip's own colours are set here.
+     */
+    private static final int CHIP_THEME = android.R.style.Theme_DeviceDefault;
 
     private static final String PREFS = "feurstagram_incontext";
     private static final String KEY_X = "chip_x";
@@ -69,46 +89,84 @@ public final class InContextDownloadOverlay {
      * Installs the chip once the tab bar is attached to Instagram's window.
      *
      * <p>Called by the patch from the HMX tab-bar watcher, so a stock build
-     * (without the M7 patch) never reaches this class.
+     * (without the M7 patch) never reaches this class. Installing an overlay
+     * must never be able to crash Instagram: every failure is logged and the
+     * window is simply left without a chip.
      */
     public static void install(final ViewGroup tabBar) {
         if (tabBar == null) {
             return;
         }
-        tabBar.post(new Runnable() {
-            @Override
-            public void run() {
-                attach(tabBar, 0);
-            }
-        });
+        try {
+            tabBar.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        attach(tabBar, 0);
+                    } catch (Throwable failure) {
+                        Log.w(TAG, "could not install the in-context download action", failure);
+                    }
+                }
+            });
+        } catch (Throwable failure) {
+            Log.w(TAG, "could not schedule the in-context download action", failure);
+        }
     }
 
     private static void attach(final ViewGroup tabBar, final int attempt) {
-        if (!tabBar.isAttachedToWindow()) {
-            retry(tabBar, attempt);
-            return;
+        try {
+            View rootView = tabBar.getRootView();
+            Activity activity = rootView == null ? null : findActivity(rootView.getContext());
+            boolean rootReady = rootView instanceof FrameLayout
+                    && rootView != tabBar
+                    && rootView.isAttachedToWindow();
+            OverlayLifecyclePolicy.Decision decision = OverlayLifecyclePolicy.decide(
+                    tabBar.isAttachedToWindow(), rootReady, activity != null,
+                    attempt, ATTACH_ATTEMPTS);
+            if (decision == OverlayLifecyclePolicy.Decision.WAIT) {
+                retry(tabBar, attempt);
+                return;
+            }
+            if (decision == OverlayLifecyclePolicy.Decision.ABANDON) {
+                // A window that never becomes ready is left alone. There is no
+                // chip on that window and nothing was forced into it.
+                return;
+            }
+            final FrameLayout root = (FrameLayout) rootView;
+            if (root.findViewWithTag(VIEW_TAG) != null) {
+                return;
+            }
+            // Theme the chip ourselves. The window's context may carry a
+            // partial splash/showcase theme, and its attributes cannot be
+            // assumed to resolve for a platform TextView.
+            Chip chip = new Chip(new ContextThemeWrapper(activity, CHIP_THEME));
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.gravity = Gravity.TOP | Gravity.START;
+            params.leftMargin = chip.savedX();
+            params.topMargin = chip.savedY();
+            root.addView(chip, params);
+            chip.begin();
+        } catch (Throwable failure) {
+            // Fail-safe: a broken overlay must never take Instagram down.
+            Log.w(TAG, "the in-context download action could not be attached", failure);
         }
-        View rootView = tabBar.getRootView();
-        if (!(rootView instanceof FrameLayout) || rootView == tabBar) {
-            // The window root is a FrameLayout by contract. Until it is there,
-            // wait: adding the chip to the tab bar itself would move it with
-            // the bar and could disturb its layout.
-            retry(tabBar, attempt);
-            return;
+    }
+
+    /** The Activity behind a context chain, or {@code null} when there is none. */
+    private static Activity findActivity(Context context) {
+        Context cursor = context;
+        for (int depth = 0; cursor != null && depth < 16; depth++) {
+            if (cursor instanceof Activity) {
+                return (Activity) cursor;
+            }
+            if (!(cursor instanceof ContextWrapper)) {
+                return null;
+            }
+            cursor = ((ContextWrapper) cursor).getBaseContext();
         }
-        final FrameLayout root = (FrameLayout) rootView;
-        if (root.findViewWithTag(VIEW_TAG) != null) {
-            return;
-        }
-        final Chip chip = new Chip(root.getContext());
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.gravity = Gravity.TOP | Gravity.START;
-        params.leftMargin = chip.savedX();
-        params.topMargin = chip.savedY();
-        root.addView(chip, params);
-        chip.begin();
+        return null;
     }
 
     private static void retry(final ViewGroup tabBar, final int attempt) {
@@ -133,6 +191,7 @@ public final class InContextDownloadOverlay {
         private final SharedPreferences prefs;
 
         private boolean dragging;
+        private boolean released;
         private float downRawX;
         private float downRawY;
 
@@ -192,6 +251,7 @@ public final class InContextDownloadOverlay {
                 }
             });
             refresh();
+            handler.removeCallbacks(tick);
             handler.postDelayed(tick, REFRESH_MS);
         }
 
@@ -385,6 +445,8 @@ public final class InContextDownloadOverlay {
 
         @Override
         public void onViewAttachedToWindow(View view) {
+            released = false;
+            MediaObserver.addListener(this);
             refresh();
             handler.removeCallbacks(tick);
             handler.postDelayed(tick, REFRESH_MS);
@@ -392,9 +454,33 @@ public final class InContextDownloadOverlay {
 
         @Override
         public void onViewDetachedFromWindow(View view) {
+            // The host window is going away (activity finished or window
+            // replaced). Stop the clock, stop observing and drop the view from
+            // its parent so nothing of the overlay outlives the window. The
+            // removal is posted: the window may still be dispatching its own
+            // detachment and the tree must not be mutated from inside that.
+            if (released) {
+                return;
+            }
+            released = true;
             handler.removeCallbacks(tick);
             MediaObserver.removeListener(this);
-            removeOnAttachStateChangeListener(this);
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (!released) {
+                        return;
+                    }
+                    ViewParent parent = getParent();
+                    if (parent instanceof ViewGroup) {
+                        try {
+                            ((ViewGroup) parent).removeView(Chip.this);
+                        } catch (RuntimeException ignored) {
+                            // The window may already be torn down.
+                        }
+                    }
+                }
+            });
         }
     }
 }

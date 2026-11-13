@@ -1,8 +1,10 @@
 # HMX Insta — M7 in-context download actions
 
 **Status:** implemented on `feature/hmx-m7-incontext-downloads`, stacked on the
-M6 branch (`feature/hmx-m6-consolidation`, PR #24). Not merged. No APK has been
-built for this milestone yet and **every device row is NOT TESTED**.
+M6 branch (`feature/hmx-m6-consolidation`, PR #24); the M7.1 startup-crash fix
+is on `feature/hmx-m7.1-overlay-theme-fix`. Not merged. A gated APK was built
+for M7; the overlay startup crash found on a device is fixed in M7.1, whose APK
+is still being verified. **Every device row is NOT TESTED.**
 
 **Prerequisite:** M6 (one launcher icon, the downloader and the privacy screen
 inside the HMX settings). M7 reuses the M4 read-only observation and the M1–M3
@@ -112,9 +114,12 @@ per-thread; Instagram's own calls are unaffected.
 Offline gates (all must pass before a gated build is requested):
 
 * `scripts/ci/test_downloader_logic.sh` — pure-JDK compile with `--release 11`,
-  `-Xlint:all -Werror`, all core and M7 policy tests.
+  `-Xlint:all -Werror`, all core and M7 policy tests, including
+  `OverlayLifecyclePolicyTest` for the M7.1 attach/abandon rules.
 * `scripts/ci/validate_features.sh` — new patch is default-off, hook-only,
-  inventory and component complete, no launcher entry, no Instagram class.
+  inventory and component complete, no launcher entry, no Instagram class; the
+  overlay must own its framework theme, require an Activity context, catch
+  `Throwable` and clean up on detach.
 * `scripts/ci/test_downloader_isolation.sh` — protected paths and pinned digest.
 * `scripts/ci/validate_repo.sh`, `test_published_gates`, `test_patch_report`,
   `test_protected_methods` — unchanged policy gates.
@@ -136,3 +141,50 @@ until real evidence exists:
 | a stale observation is not offered | NOT TESTED |
 | progress/completion notification and saved file verified | NOT TESTED |
 | login, feed scrolling, reels playback, stories and profile navigation unchanged | NOT TESTED |
+| app starts and the login screen loads without a crash (M7.1) | NOT TESTED |
+
+## 5. M7.1 — startup crash fix (2026-11-13)
+
+### 5.1 Root cause
+
+The chip was created as a platform `TextView` from the window's own context.
+On the signed-out launcher screen (`com.instagram.nux.activity.BloksSignedOutFragmentActivity`)
+that context carries `Base.Theme.Launcher`, a partial splash theme whose text
+appearance resolves to the Instagram design-system attribute
+`igds_color_secondary_text` — resource **`0x7f040820`**, confirmed in the built
+APK (`aapt2 dump resources`) — while the theme's forced fallback
+(`android:style/Theme.DeviceDefault.Light.DarkActionBar`) does not define that
+attribute. `TextView.readTextAppearance` called `TypedArray.getColorStateList`
+on it and threw:
+
+```
+java.lang.UnsupportedOperationException: Failed to resolve attribute at index 7:
+    TypedValue{t=0x2/d=0x7f040820 a=23}
+    at android.widget.TextView.readTextAppearance(TextView.java:4397)
+    at android.widget.TextView.<init>(TextView.java:1300)
+    at com.feurstagram.extension.downloader.android.InContextDownloadOverlay$Chip.<init>
+```
+
+Because the crash ran on the main thread from the post that installs the
+overlay, Instagram died while loading the login screen. Nothing in the login
+flow, auth/session code or Instagram's own views was involved.
+
+### 5.2 Fix
+
+* The chip is built with `new ContextThemeWrapper(activity, android.R.style.Theme_DeviceDefault)`.
+  The extension owns the theme, so a partial host theme can no longer inject an
+  unresolvable attribute. The chip's colours, size and background were already
+  set explicitly.
+* Attachment waits for a real `Activity` context, an attached tab bar and an
+  attached `FrameLayout` window root, through the new pure-JDK
+  `OverlayLifecyclePolicy` (`WAIT` → `ATTACH` → `ABANDON`). A window that never
+  becomes ready is left alone; nothing is forced into it.
+* `install` and `attach` catch `Throwable` and only log: an overlay failure can
+  never take Instagram down.
+* The existing `VIEW_TAG` check prevents a second chip in the same window.
+* On detach the chip stops its clock, unregisters from `MediaObserver` and
+  removes itself from its parent, so it cannot outlive the window; re-attach
+  restores observation.
+* The downloader itself is unchanged: the callback still goes through
+  `InContextDownloadSheet` → `HmxDownloader`, so the standalone Downloader
+  screen and the Share Target keep working even if the chip is abandoned.
