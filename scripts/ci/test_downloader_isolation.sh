@@ -32,7 +32,11 @@ BASE="${HMX_DOWNLOADER_BASE:-a94b5e191117ab9d8e266eaf497059c437761314}"
 # The ghost sources and the in-context patch are inside the digest on purpose:
 # a privacy control or a download action that is changed after its review must
 # fail this check like any other protected file.
-PINNED_PROTECTED_DIGEST="bbe081b1708989e4d4e087738f12c33d444e913ce221692bed7df6f2a7bd6e12"
+#
+# Re-pinned once more in M7: the in-context patch changed from the cross-package
+# params helper to parameterTypes after the first gated build caught the
+# unresolved reference. No other digested file changed.
+PINNED_PROTECTED_DIGEST="81ef3ac358ce97bd8fb57baead19f79d8eb60117287df6612c7863b42d0f31f4"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
