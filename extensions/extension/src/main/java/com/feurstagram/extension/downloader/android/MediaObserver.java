@@ -46,7 +46,7 @@ public final class MediaObserver {
      */
     private static final ThreadLocal<Boolean> READING = new ThreadLocal<Boolean>();
 
-    private static final List<Listener> LISTENERS =
+    private static final CopyOnWriteArrayList<Listener> LISTENERS =
             new CopyOnWriteArrayList<Listener>();
 
     private static volatile boolean enabled = true;

@@ -39,7 +39,8 @@ val inContextDownloadPatch = bytecodePatch(
         val settings = mutableClassDefBy(SETTINGS)
         val watcher = settings.methods.singleOrNull {
             it.name == "installHomeTabWatcher" &&
-                it.params == listOf("Landroid/view/ViewGroup;") &&
+                it.parameterTypes.map { type -> type.toString() } ==
+                listOf("Landroid/view/ViewGroup;") &&
                 it.returnType == "V"
         } ?: throw PatchException(
             "Extension has no installHomeTabWatcher(ViewGroup) to install the " +
