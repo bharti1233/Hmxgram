@@ -59,8 +59,10 @@ final class InContextDownloadSheet {
             TextView body = new TextView(context);
             body.setText(InContextAction.detail(media, ageMs, surface)
                     + "\n\nSaving " + count + (count == 1 ? " item" : " items")
-                    + ". Progress and the result appear in the HMX download notification;"
-                    + " saved files use the same HMX downloader folder as the downloader screen.");
+                    + ". Progress and the result appear in the HMX download notification,"
+                    + " and the same queue and saved history are in HMX Insta settings →"
+                    + " Downloader. Saved files use the same HMX downloader folder as that"
+                    + " screen.");
             Settings.body(body);
             body.setPadding(0, Settings.dp(context, 10), 0, 0);
             bodyScroll.addView(body);
