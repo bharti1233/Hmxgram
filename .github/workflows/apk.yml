@@ -70,6 +70,11 @@ on:
         required: true
         default: false
         type: boolean
+      enable_incontext:
+        description: Apply the default-off "In-context download actions" patch (the HMX download chip over feed, reels and stories). Implies enable_downloader and must be listed in the patch report
+        required: true
+        default: false
+        type: boolean
       run_install_test:
         description: Run an adb install smoke test on an attached arm64 API 35 device (GitHub-hosted runners have none; leave false and the device test is reported as pending)
         required: true
@@ -114,6 +119,8 @@ jobs:
       # ordinary build still has to pass the unchanged 14-patch expectation.
       EXPECTED_PATCHES_WITH_DOWNLOADER: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer'
       EXPECTED_PATCHES_WITH_GHOST: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer,Ghost Mode settings'
+      EXPECTED_PATCHES_WITH_INCONTEXT: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer,In-context download actions'
+      EXPECTED_PATCHES_WITH_INCONTEXT_GHOST: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer,In-context download actions,Ghost Mode settings'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -170,6 +177,7 @@ jobs:
           PUBLISH_TEST_APK: ${{ inputs.publish_test_apk }}
           ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
           ENABLE_GHOST: ${{ inputs.enable_ghost }}
+          ENABLE_INCONTEXT: ${{ inputs.enable_incontext }}
           DIST_TOKEN: ${{ secrets.DIST_TOKEN }}
           HAS_RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
@@ -250,16 +258,24 @@ jobs:
 
           # The downloader share target is default-off in the patch source. A
           # build that asks for it must therefore expect it in the patch report,
-          # and a build that does not ask for it must not contain it.
-          if [ "$ENABLE_DOWNLOADER" = "true" ]; then
-            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_DOWNLOADER" >> "$GITHUB_ENV"
-            echo "MIN_APPLIED_PATCHES=16" >> "$GITHUB_ENV"
-            echo "::notice::The downloader patches are enabled for this build."
-          fi
-          if [ "$ENABLE_GHOST" = "true" ]; then
+          # and a build that does not ask for it must not contain it. The
+          # in-context action sits on top of the downloader and implies it.
+          if [ "$ENABLE_GHOST" = "true" ] && [ "$ENABLE_INCONTEXT" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_INCONTEXT_GHOST" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=18" >> "$GITHUB_ENV"
+            echo "::notice::The in-context download action and Ghost Mode patches are enabled for this build."
+          elif [ "$ENABLE_GHOST" = "true" ]; then
             echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_GHOST" >> "$GITHUB_ENV"
             echo "MIN_APPLIED_PATCHES=17" >> "$GITHUB_ENV"
             echo "::notice::The Ghost Mode settings patch is enabled for this build."
+          elif [ "$ENABLE_INCONTEXT" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_INCONTEXT" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=17" >> "$GITHUB_ENV"
+            echo "::notice::The in-context download action is enabled for this build."
+          elif [ "$ENABLE_DOWNLOADER" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_DOWNLOADER" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=16" >> "$GITHUB_ENV"
+            echo "::notice::The downloader patches are enabled for this build."
           fi
 
       - name: Enforce least-privilege private-asset token
@@ -476,6 +492,7 @@ jobs:
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
           ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
           ENABLE_GHOST: ${{ inputs.enable_ghost }}
+          ENABLE_INCONTEXT: ${{ inputs.enable_incontext }}
           DISABLE_PATCHES: ${{ inputs.disable_patches }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
@@ -492,6 +509,9 @@ jobs:
           fi
           if [ "${ENABLE_DOWNLOADER:-false}" = "true" ]; then
             args+=(--downloader)
+          fi
+          if [ "${ENABLE_INCONTEXT:-false}" = "true" ]; then
+            args+=(--incontext)
           fi
           if [ "${ENABLE_GHOST:-false}" = "true" ]; then
             args+=(--ghost)
@@ -631,6 +651,7 @@ jobs:
           CLONE: ${{ inputs.clone }}
           ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
           ENABLE_GHOST: ${{ inputs.enable_ghost }}
+          ENABLE_INCONTEXT: ${{ inputs.enable_incontext }}
           EXPECTED_PACKAGE: com.instagram.android
         run: |
           set -euo pipefail
@@ -657,6 +678,10 @@ jobs:
               echo "::error::The patch report does not list the Downloader share target patch"; exit 1; }
             grep -qF 'Downloader media observer' build/patch-report.json || {
               echo "::error::The patch report does not list the Downloader media observer patch"; exit 1; }
+          fi
+          if [ "${ENABLE_INCONTEXT:-false}" = "true" ]; then
+            grep -qF 'In-context download actions' build/patch-report.json || {
+              echo "::error::The patch report does not list the In-context download actions patch"; exit 1; }
           fi
           if [ "${ENABLE_GHOST:-false}" = "true" ]; then
             grep -qF 'Ghost Mode settings' build/patch-report.json || {
@@ -745,6 +770,11 @@ jobs:
               echo "- Downloader patches: **ENABLED** (the patch report must list the share target and the media observer)"
             else
               echo "- Downloader patches: **disabled** (default-off patches, not applied)"
+            fi
+            if [ "${{ inputs.enable_incontext }}" = "true" ]; then
+              echo "- In-context download actions: **ENABLED** (HMX chip over feed, reels and stories; the patch report must list it)"
+            else
+              echo "- In-context download actions: **disabled** (default-off patch, not applied)"
             fi
             case "${SIGNING_MODE:-}" in
               release) echo "- Signing mode: **release keystore** (certificate pinned by \`RELEASE_CERT_SHA256\`)" ;;

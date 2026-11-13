@@ -1,5 +1,7 @@
 package com.feurstagram.extension.downloader.android;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import com.feurstagram.extension.downloader.core.MediaModelReader;
@@ -8,6 +10,7 @@ import com.feurstagram.extension.downloader.core.ObservedMedia;
 
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Watches the media the user browses and records what they looked at.
@@ -35,10 +38,29 @@ public final class MediaObserver {
     private static final ArrayDeque<Object> PENDING = new ArrayDeque<Object>();
     private static final Object LOCK = new Object();
 
+    /**
+     * Guards the reader against its own reflection: reading a model invokes
+     * its image_info accessor, which is exactly the method the Instagram hook
+     * was installed on. Without this guard every read would enqueue the same
+     * model again, forever.
+     */
+    private static final ThreadLocal<Boolean> READING = new ThreadLocal<Boolean>();
+
+    private static final List<Listener> LISTENERS =
+            new CopyOnWriteArrayList<Listener>();
+
     private static volatile boolean enabled = true;
     private static boolean workerRunning;
 
+    private static volatile ObservedMedia latest;
+    private static volatile long latestAtMs;
+
     private MediaObserver() {
+    }
+
+    /** Told on the main thread whenever a media observation was accepted. */
+    public interface Listener {
+        void onMediaObserved(ObservedMedia media);
     }
 
     /** The observations, most recent first. */
@@ -51,9 +73,44 @@ public final class MediaObserver {
         return REGISTRY.find(id);
     }
 
+    /**
+     * The most recent accepted observation, or {@code null}.
+     *
+     * <p>The in-context action offers this media. It is not tied to a row:
+     * Instagram's row binder is untouched, so the sheet asks the user to
+     * confirm instead of pretending the action belongs to one post.
+     */
+    public static ObservedMedia latest() {
+        return latest;
+    }
+
+    /** How long ago the latest observation was accepted, in milliseconds. */
+    public static long latestAgeMs() {
+        if (latest == null) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(0L, System.currentTimeMillis() - latestAtMs);
+    }
+
+    /** Registers an in-context listener; it is called on the main thread. */
+    public static void addListener(Listener listener) {
+        if (listener != null) {
+            LISTENERS.addIfAbsent(listener);
+        }
+    }
+
+    /** Unregisters a listener. */
+    public static void removeListener(Listener listener) {
+        if (listener != null) {
+            LISTENERS.remove(listener);
+        }
+    }
+
     /** Forgets every observation. */
     public static void clear() {
         REGISTRY.clear();
+        latest = null;
+        latestAtMs = 0L;
     }
 
     /** Turns the observation on or off. */
@@ -63,6 +120,7 @@ public final class MediaObserver {
             synchronized (LOCK) {
                 PENDING.clear();
             }
+            clear();
         }
     }
 
@@ -79,6 +137,11 @@ public final class MediaObserver {
      */
     public static void observeMedia(Object model) {
         if (!enabled || model == null) {
+            return;
+        }
+        // Our own reader invokes the hooked accessor through reflection. Do
+        // not observe the model a second time from inside that read.
+        if (Boolean.TRUE.equals(READING.get())) {
             return;
         }
         try {
@@ -143,15 +206,59 @@ public final class MediaObserver {
                     continue;
                 }
                 idleSince = System.currentTimeMillis();
+                ObservedMedia media = null;
+                READING.set(Boolean.TRUE);
                 try {
-                    ObservedMedia media = MediaModelReader.read(model);
-                    if (media != null) {
-                        REGISTRY.observe(media);
-                    }
+                    media = MediaModelReader.read(model);
                 } catch (RuntimeException e) {
                     Log.w(TAG, "could not read an observed media", e);
+                } finally {
+                    READING.remove();
+                }
+                if (media != null) {
+                    accept(media);
                 }
             }
+        }
+    }
+
+    /** Records an accepted observation and tells the in-context listeners. */
+    private static void accept(ObservedMedia media) {
+        REGISTRY.observe(media);
+        latest = media;
+        latestAtMs = System.currentTimeMillis();
+        if (LISTENERS.isEmpty()) {
+            return;
+        }
+        final ObservedMedia accepted = media;
+        Runnable dispatch = new Runnable() {
+            @Override
+            public void run() {
+                for (Listener listener : LISTENERS) {
+                    try {
+                        listener.onMediaObserved(accepted);
+                    } catch (RuntimeException e) {
+                        // A listener must never break the observer or Instagram.
+                        Log.w(TAG, "an in-context listener failed", e);
+                    }
+                }
+            }
+        };
+        Handler handler = mainHandler();
+        if (handler == null) {
+            dispatch.run();
+        } else {
+            handler.post(dispatch);
+        }
+    }
+
+    /** The main-thread handler, or {@code null} when there is no main looper. */
+    private static Handler mainHandler() {
+        try {
+            Looper looper = Looper.getMainLooper();
+            return looper == null ? null : new Handler(looper);
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 

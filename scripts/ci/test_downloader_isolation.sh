@@ -168,6 +168,7 @@ while IFS= read -r path; do
     docs/HMX_INSTA_M4_INSTAGRAM_MEDIA.md) ;;
     docs/HMX_INSTA_M5_GHOST_MODE.md) ;;
     docs/HMX_INSTA_M6_CONSOLIDATION.md) ;;
+    docs/HMX_INSTA_M7_INCONTEXT_DOWNLOADS.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;

@@ -33,6 +33,7 @@ EXPECTED_PATCH_SOURCES=(
   patches/src/main/kotlin/com/feurstagram/patches/display/SetColorModePatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderMediaObserverPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/InContextDownloadPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/ghost/GhostModePatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/FeedItemFilterPatch.kt
   patches/src/main/kotlin/com/feurstagram/patches/network/LimitFeedToFollowingPatch.kt
@@ -108,6 +109,9 @@ if [ -d "$ANDROID_DIR" ]; then
     AudioExtractor.java \
     PreferencesDownloadRepository.java \
     DownloadNotifier.java \
+    MediaObserver.java \
+    InContextDownloadOverlay.java \
+    InContextDownloadSheet.java \
     ShareTargetActivity.java \
     ShareIntentParser.java \
     ShareImporter.java \
@@ -145,6 +149,7 @@ missing_component=0
 for patch_file in \
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt \
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderMediaObserverPatch.kt \
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/InContextDownloadPatch.kt \
   patches/src/main/kotlin/com/feurstagram/patches/ghost/GhostModePatch.kt
 do
   [ -f "$patch_file" ] || continue
@@ -171,6 +176,7 @@ launcher_entries=0
 for patch_file in \
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt \
   patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderMediaObserverPatch.kt \
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/InContextDownloadPatch.kt \
   patches/src/main/kotlin/com/feurstagram/patches/ghost/GhostModePatch.kt
 do
   [ -f "$patch_file" ] || continue
@@ -215,6 +221,35 @@ if [ -f "$SHARE_PATCH" ]; then
   fi
 else
   bad "missing share target patch: $SHARE_PATCH"
+fi
+
+note "== In-context download patch is default-off and hook-only =="
+INCONTEXT_PATCH="patches/src/main/kotlin/com/feurstagram/patches/downloader/InContextDownloadPatch.kt"
+if [ -f "$INCONTEXT_PATCH" ]; then
+  if grep -qE 'default[[:space:]]*=[[:space:]]*false' "$INCONTEXT_PATCH"; then
+    note "ok: in-context download patch is default-off"
+  else
+    bad "in-context download patch must be default-off"
+  fi
+  if grep -qF -- '->install(Landroid/view/ViewGroup;)V' "$INCONTEXT_PATCH" && \
+     grep -qF 'Lcom/feurstagram/extension/downloader/android/InContextDownloadOverlay;' "$INCONTEXT_PATCH" && \
+     grep -qF 'Lcom/feurstagram/extension/Settings;' "$INCONTEXT_PATCH"; then
+    note "ok: in-context patch hooks only the HMX tab-bar watcher"
+  else
+    bad "in-context patch must install the overlay from the HMX tab-bar watcher"
+  fi
+  if grep -qE 'Lcom/instagram/' "$INCONTEXT_PATCH"; then
+    bad "in-context patch names an Instagram class; it must stay inside the extension"
+  else
+    note "ok: in-context patch names no Instagram class"
+  fi
+  if grep -qE 'row_binding|DownloaderBinder|observeMedia|Lcom/instagram/feed/media/Media;' "$INCONTEXT_PATCH"; then
+    bad "in-context patch touches the protected row binder or a media model"
+  else
+    note "ok: in-context patch never touches the row binder or a media model"
+  fi
+else
+  bad "missing in-context download patch: $INCONTEXT_PATCH"
 fi
 
 note "== Existing features do not reference the downloader core =="

@@ -5,6 +5,18 @@ All notable changes to Feurstagram should be documented in this file.
 ## Unreleased
 
 ### Added
+- **In-context download actions (M7, draft, not merged).** A draggable HMX
+  "save" chip appears over supported feed posts, reels and story media and
+  opens a confirmation sheet before anything is queued. It is an HMX-owned view
+  in Instagram's window, not a button injected into a post: the protected row
+  binder and the views inside a post are untouched. It reuses the existing
+  read-only media observation and the existing download engine, so duplicate
+  detection, progress and completion notifications, the persisted queue and the
+  verified MediaStore publish all apply. Carousels are expanded into their
+  usable children. The patch is default-off (`--incontext` / `enable_incontext`)
+  and a build without it never reaches the overlay. Per-row buttons remain
+  unimplemented because they would require changing the protected row binder;
+  private or expired stories are refused, never claimed.
 - **One integrated application (M6, draft, not merged).** The downloader and
   the privacy screen are no longer separate launcher entries: both are opened
   from the HMX Insta settings (long-press Home), inside Instagram, and the
@@ -50,6 +62,10 @@ All notable changes to Feurstagram should be documented in this file.
   landed with M2.
 
 ### Fixed
+- **Media-observer re-entrancy (M7, draft).** Reading an observed model invokes
+  the same media accessor the Instagram hook is installed on. The observer now
+  guards that read per thread, so a single observation is queued once instead
+  of re-queuing itself forever. Instagram's own calls are unchanged.
 - **M2 audit findings F1-F7 (draft branch, not merged).**
   - *F1:* the Android 13+ `POST_NOTIFICATIONS` permission is now requested once
     per install from the share activity; a denial is remembered and respected,
