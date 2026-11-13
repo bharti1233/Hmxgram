@@ -93,7 +93,34 @@ launcher ✓.
 
 ---
 
-## 3. What did not change
+## 3b. A build gate that was comparing layout, not behaviour
+
+The first consolidated build failed in the **protected-method gate**, with no
+behavioural difference at all. Every hunk of every protected class differed
+only in two places: the byte address printed on the method header and the
+source file index. The instructions, the registers, the operands, the access
+flags and the catch ranges were identical.
+
+Both are dex **layout**: rebuilding a dex file moves every method header in
+it, including the classes nobody patched, and moves the source file index
+with the string table. The M6 build touched one more dex file than the
+previous builds, so the untouched protected classes moved.
+
+The gate now normalises the header address and the source file index, like it
+already normalised the instruction offsets and the table indices ("Table
+indices are layout, not behaviour"). Everything behavioural stays compared:
+the method name, the descriptor, the source file name, every instruction,
+register, operand and access flag, and the catch ranges. The self-test grew
+two checks (the addresses may move, the source index may move) and still
+fails on a changed opcode, a changed register and a changed access flag. The
+same 12 surfaces, the same baseline pin, the same fail-closed behaviour.
+
+This was a **bug fix in the gate**, not a relaxation of it: a gate that
+fires on layout noise is a gate whose real findings get lost.
+
+---
+
+## 4. What did not change
 
 * `main` was not modified and no branch was merged.
 * No login, signup, authentication, session, password, cookie or
@@ -110,7 +137,7 @@ launcher ✓.
 
 ---
 
-## 4. Acceptance criteria for the new APK
+## 5c. Acceptance criteria for the new APK
 
 1. Exactly one launcher icon, labelled **HMX Insta+**.
 2. Login and signup work.
@@ -125,7 +152,7 @@ launcher ✓.
 
 ---
 
-## 5. Device checklist (OPPO A38) — every row NOT TESTED
+## 7. Device checklist (OPPO A38) — every row NOT TESTED
 
 | # | Check | Result |
 | --- | --- | --- |
