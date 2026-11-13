@@ -113,20 +113,36 @@ public final class MediaObserver {
 
         @Override
         public void run() {
+            long idleSince = System.currentTimeMillis();
             while (true) {
                 Object model;
                 synchronized (LOCK) {
                     model = PENDING.pollFirst();
                 }
                 if (model == null) {
+                    // The thread only lives while there is something to read.
+                    // A user who stopped browsing does not pay a wake-up every
+                    // second for the rest of the session.
+                    if (System.currentTimeMillis() - idleSince >= IDLE_EXIT_MS) {
+                        synchronized (LOCK) {
+                            if (PENDING.isEmpty()) {
+                                workerRunning = false;
+                                return;
+                            }
+                        }
+                    }
                     try {
                         Thread.sleep(250L);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
+                        synchronized (LOCK) {
+                            workerRunning = false;
+                        }
                         return;
                     }
                     continue;
                 }
+                idleSince = System.currentTimeMillis();
                 try {
                     ObservedMedia media = MediaModelReader.read(model);
                     if (media != null) {
@@ -138,6 +154,9 @@ public final class MediaObserver {
             }
         }
     }
+
+    /** How long the reader waits for a model before it gives up the thread. */
+    private static final long IDLE_EXIT_MS = 120000L;
 
     /** How many models are waiting to be read. */
     static int pendingCount() {

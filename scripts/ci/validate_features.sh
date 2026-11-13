@@ -136,6 +136,53 @@ else
   note "ok: Android shell touches no Instagram, cookie, account or broad-storage API"
 fi
 
+note "== Every component the downloader and ghost patches declare exists =="
+# A component that the manifest names but the extension does not ship is a
+# crash on launch: the launcher (or the settings) starts a class that is not
+# in the APK. This check makes that impossible to merge.
+COMPONENT_SOURCE_DIR="extensions/extension/src/main/java"
+missing_component=0
+for patch_file in \
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt \
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderMediaObserverPatch.kt \
+  patches/src/main/kotlin/com/feurstagram/patches/ghost/GhostModePatch.kt
+do
+  [ -f "$patch_file" ] || continue
+  for class_name in $(grep -oE '"com\.feurstagram\.extension\.[A-Za-z0-9_.]+"' "$patch_file" \
+      | tr -d '"' | sort -u)
+  do
+    class_path="$COMPONENT_SOURCE_DIR/$(printf '%s' "$class_name" | tr '.' '/').java"
+    if [ -f "$class_path" ]; then
+      note "ok: $class_name exists"
+    else
+      bad "the patch names $class_name but $class_path does not exist"
+      missing_component=1
+    fi
+  done
+done
+if [ "$missing_component" -eq 0 ]; then
+  note "ok: every declared component exists in the extension"
+fi
+
+note "== The downloader and ghost features add no launcher entry =="
+# The app must keep exactly one launcher icon: the features are opened from
+# the HMX Insta settings, not from the launcher.
+launcher_entries=0
+for patch_file in \
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderShareTargetPatch.kt \
+  patches/src/main/kotlin/com/feurstagram/patches/downloader/DownloaderMediaObserverPatch.kt \
+  patches/src/main/kotlin/com/feurstagram/patches/ghost/GhostModePatch.kt
+do
+  [ -f "$patch_file" ] || continue
+  if grep -q 'android.intent.category.LAUNCHER' "$patch_file"; then
+    bad "$patch_file declares a launcher entry; the app must keep exactly one icon"
+    launcher_entries=1
+  fi
+done
+if [ "$launcher_entries" -eq 0 ]; then
+  note "ok: the downloader and ghost features declare no launcher entry"
+fi
+
 note "== Share target patch is present and default-off =="
 if [ -f "$SHARE_PATCH" ]; then
   if grep -qE 'default[[:space:]]*=[[:space:]]*false' "$SHARE_PATCH"; then

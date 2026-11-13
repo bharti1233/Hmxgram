@@ -36,9 +36,10 @@ private val REQUESTED_PERMISSIONS = listOf(
  * that hands the copied stream to the worker is private, and the
  * {@code DownloadService} that keeps the queue alive is not exported.
  *
- * <p>The second exported component is the downloader screen, a launcher
- * activity of its own that shows the queue, the progress and the history
- * without touching the Instagram UI.
+ * <p>The second component is the downloader screen, an internal activity that
+ * shows the queue, the progress and the history without touching the
+ * Instagram UI. It is opened from the HMX Insta settings, so the app keeps
+ * exactly one launcher icon.
  *
  * <p>Permissions: {@code POST_NOTIFICATIONS} for the Android 13 drawer,
  * {@code FOREGROUND_SERVICE} and {@code FOREGROUND_SERVICE_DATA_SYNC} for the
@@ -122,23 +123,16 @@ private fun buildActivity(document: org.w3c.dom.Document): Element {
 }
 
 private fun buildDownloaderActivity(document: org.w3c.dom.Document): Element {
-    // The downloader screen is a launcher activity of its own: it shows the
-    // queue and the history without touching the Instagram UI. M4 can add
-    // in-app entry points later without changing this declaration.
+    // The downloader screen is an internal activity of the app: it is opened
+    // from the HMX Insta settings, not from the launcher, so the app keeps
+    // exactly one icon. M4 can add in-app entry points on the feed without
+    // changing this declaration.
     val activity = document.createElement("activity")
     activity.setAttribute("android:name", DOWNLOADER_ACTIVITY)
-    activity.setAttribute("android:exported", "true")
+    activity.setAttribute("android:exported", "false")
     activity.setAttribute("android:label", "HMX Insta Downloader")
     activity.setAttribute("android:theme", "@android:style/Theme.DeviceDefault")
     activity.setAttribute("android:launchMode", "singleTop")
-    val filter = document.createElement("intent-filter")
-    val action = document.createElement("action")
-    action.setAttribute("android:name", "android.intent.action.MAIN")
-    filter.appendChild(action)
-    val category = document.createElement("category")
-    category.setAttribute("android:name", "android.intent.category.LAUNCHER")
-    filter.appendChild(category)
-    activity.appendChild(filter)
     return activity
 }
 
