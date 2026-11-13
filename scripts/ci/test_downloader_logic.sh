@@ -52,6 +52,7 @@ java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderCor
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderUiTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.MediaObservationTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.InContextActionTest
+java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.OverlayLifecyclePolicyTest
 
 echo
 echo "== Running the ghost-mode policy tests =="
