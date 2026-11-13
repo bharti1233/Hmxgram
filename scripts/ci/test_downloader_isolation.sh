@@ -14,7 +14,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-BASE="${HMX_DOWNLOADER_BASE:-ba477e8e0d115449c5e0ea90a6bbc1fa06444999}"
+BASE="${HMX_DOWNLOADER_BASE:-a94b5e191117ab9d8e266eaf497059c437761314}"
 # The baseline is the reviewed CI commit that lets the gated build apply the
 # downloader's own patches and the privacy screen (the M1 integration commit
 # ba72c21 is its ancestor). Everything the downloader milestones change is measured from
@@ -22,16 +22,17 @@ BASE="${HMX_DOWNLOADER_BASE:-ba477e8e0d115449c5e0ea90a6bbc1fa06444999}"
 # below pins the exact content of every protected file, build.sh and apk.yml
 # included, so any later change to them still fails this check.
 #
-# Computed from the reviewed CI baseline plus the reviewed M2/M3/M4/M5 files
-# over the protected paths listed below. The share-target patch is deliberately
-# included. The digest was last re-pinned for the M5 ghost-mode work: the
-# delta was attributed to the new ghost sources and their patch, with every
-# other protected file byte-identical to the previous pin.
+# Computed from the reviewed CI baseline plus the reviewed M2/M3/M4/M5/M6/M7
+# files over the protected paths listed below. The share-target, in-context and
+# ghost patches are deliberately included. The digest was last re-pinned for the
+# M7 in-context work: the delta was the new in-context patch plus the M7 build
+# switches in build.sh and apk.yml, with every other protected file
+# byte-identical to the previous pin.
 #
-# The ghost sources are inside the digest on purpose: a privacy control that
-# is changed after its review must fail this check like any other protected
-# file.
-PINNED_PROTECTED_DIGEST="92a5f05da172196ebb61d32b5603b84e1e7a5ee61dab646105d5999339cd7e97"
+# The ghost sources and the in-context patch are inside the digest on purpose:
+# a privacy control or a download action that is changed after its review must
+# fail this check like any other protected file.
+PINNED_PROTECTED_DIGEST="bbe081b1708989e4d4e087738f12c33d444e913ce221692bed7df6f2a7bd6e12"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
