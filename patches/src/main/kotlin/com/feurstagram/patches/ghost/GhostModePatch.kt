@@ -6,15 +6,15 @@ import com.feurstagram.patches.shared.Constants.COMPATIBILITY_INSTAGRAM
 import org.w3c.dom.Element
 
 private const val ACTIVITY =
-    "com.feurstagram.extension.ghost.GhostModeActivity"
+    "com.feurstagram.extension.ghost.android.GhostModeActivity"
 
 private const val ORIGINAL_PACKAGE = "com.instagram.android"
 
 /**
  * Adds the Ghost Mode settings screen.
  *
- * <p>The screen is a launcher activity of its own: it lists the privacy
- * controls with an explanation each, and it never touches the Instagram UI.
+ * <p>The screen is an internal activity of the app: it is opened from the HMX
+ * Insta settings, not from the launcher, so the app keeps exactly one icon.
  * The controls that this repository cannot implement safely are shown with
  * the reason and cannot be switched on.
  *
@@ -51,19 +51,13 @@ val ghostModePatch = resourcePatch(
 }
 
 private fun buildActivity(document: org.w3c.dom.Document): Element {
+    // Not exported and without a launcher filter: the screen belongs to the
+    // app, it is opened from the HMX Insta settings.
     val activity = document.createElement("activity")
     activity.setAttribute("android:name", ACTIVITY)
-    activity.setAttribute("android:exported", "true")
+    activity.setAttribute("android:exported", "false")
     activity.setAttribute("android:label", "HMX Ghost Mode")
     activity.setAttribute("android:theme", "@android:style/Theme.DeviceDefault")
     activity.setAttribute("android:launchMode", "singleTop")
-    val filter = document.createElement("intent-filter")
-    val action = document.createElement("action")
-    action.setAttribute("android:name", "android.intent.action.MAIN")
-    filter.appendChild(action)
-    val category = document.createElement("category")
-    category.setAttribute("android:name", "android.intent.category.LAUNCHER")
-    filter.appendChild(category)
-    activity.appendChild(filter)
     return activity
 }

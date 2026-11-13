@@ -20,16 +20,21 @@ private const val OBSERVER =
  * place every media item passes through, whatever the feed, the reels or the
  * stories show.
  *
- * <p>The anchor is the behaviour, not a name: the class holds the media JSON
- * keys, and the method is the one that reads {@code image_versions2} and
- * answers an image info. The accessors are renamed in every release; the
- * shape is not.
+ * <p>The anchor is the behaviour, not a name: the method reads
+ * {@code image_versions2} and answers an image info. The accessors are
+ * renamed in every release; the shape is not.
+ *
+ * <p>The string criterion is matched against the <em>method</em>, not against
+ * the class: the accessor itself holds the one key it reads. The anchor was
+ * confirmed against the dex of the published build, where this accessor is the
+ * only method that both reads {@code image_versions2} and answers a
+ * {@code mediasize/ImageInfo}.
  */
 internal object MediaImageInfoFingerprint : Fingerprint(
-    name = "media_image_info",
-    strings = listOf("image_versions2", "video_versions", "carousel_media"),
+    strings = listOf("image_versions2"),
     custom = { method, _ ->
-        method.returnType.endsWith("ImageInfo;") &&
+        method.returnType == "Lcom/instagram/model/mediasize/ImageInfo;" &&
+            method.parameterTypes.isEmpty() &&
             method.implementation?.instructions?.any { instruction ->
                 val reference = (instruction as? ReferenceInstruction)?.reference
                 reference is StringReference && reference.string == "image_versions2"

@@ -482,7 +482,7 @@ public final class Settings {
         void showOverview(boolean animate) {
             dialog.onBack = null;
             back.setVisibility(View.GONE);
-            title.setText("HMX Insta");
+            title.setText("HMX Insta+");
             subtitle.setText(hardcore
                     ? "Permanent lock is on. You can tighten blocks but not loosen them. "
                             + "Reinstall to fully unlock."
@@ -634,11 +634,47 @@ public final class Settings {
 
         LinearLayout app = addSection(context, column, "App");
         addSectionRow(context, app, "moon", "Display and popups", displaySummary(),
-                () -> pages.open("Display and popups", "How Instagram looks and talks to you.",
+                () -> pages.open("Display and popups", "How HMX Insta looks and talks to you.",
                         Settings::buildDisplay));
-        addSectionRow(context, app, "info", "About HMX Insta", "HMX Insta by HMXPanel",
-                () -> pages.open("About HMX Insta", "HMX Insta by HMXPanel.", Settings::buildAbout));
+        addSectionRow(context, app, "download", "Downloader",
+                "Save the photos, videos and audio you browse",
+                () -> openDownloader(context));
+        addSectionRow(context, app, "eye_off", "Ghost Mode",
+                "Privacy controls, off by default",
+                () -> openGhostMode(context));
+        addSectionRow(context, app, "info", "About HMX Insta+", "HMX Insta+ by HMXPanel",
+                () -> pages.open("About HMX Insta+", "HMX Insta+ by HMXPanel.", Settings::buildAbout));
         sealGroup(context, app);
+    }
+
+    /**
+     * Opens the downloader screen. It is an internal activity of this app, so
+     * the launcher keeps exactly one icon.
+     */
+    private static void openDownloader(Context context) {
+        try {
+            context.startActivity(new Intent(context,
+                    com.feurstagram.extension.downloader.android.DownloaderActivity.class));
+        } catch (RuntimeException e) {
+            // The screen is part of this app; if it cannot be started, the
+            // settings must not take the app down with it.
+            android.widget.Toast.makeText(context,
+                    "The downloader is not available in this build", android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Opens the privacy screen. It is an internal activity of this app, so the
+     * launcher keeps exactly one icon.
+     */
+    private static void openGhostMode(Context context) {
+        try {
+            context.startActivity(new Intent(context,
+                    com.feurstagram.extension.ghost.android.GhostModeActivity.class));
+        } catch (RuntimeException e) {
+            android.widget.Toast.makeText(context,
+                    "Ghost Mode is not available in this build", android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     /** Whether a surface is hidden, with that key's own default. */
@@ -756,7 +792,7 @@ public final class Settings {
         LinearLayout about = addGroup(context, column);
 
         TextView name = new TextView(context);
-        name.setText("HMX Insta");
+        name.setText("HMX Insta+");
         titleLarge(name);
         about.addView(name);
 
@@ -773,7 +809,7 @@ public final class Settings {
         about.addView(publisher);
 
         TextView attribution = new TextView(context);
-        attribution.setText("HMX Insta is built on FeurStagram, which is free and open "
+        attribution.setText("HMX Insta+ is built on FeurStagram, which is free and open "
                 + "source under the GNU General Public License v3. FeurStagram and its "
                 + "contributors are the original authors of the patches and the companion app.");
         body(attribution);

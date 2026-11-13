@@ -5,6 +5,15 @@ All notable changes to Feurstagram should be documented in this file.
 ## Unreleased
 
 ### Added
+- **One integrated application (M6, draft, not merged).** The downloader and
+  the privacy screen are no longer separate launcher entries: both are opened
+  from the HMX Insta settings (long-press Home), inside Instagram, and the
+  app keeps exactly one icon, now labelled **HMX Insta+**. The privacy screen
+  no longer crashes (the manifest named a class the app does not ship), and
+  the downloader actually observes the media now (the hook's fingerprint is
+  matched against the method, which is where the key lives). Two new gates
+  fail closed if a declared component is missing or if a feature adds a
+  launcher entry.
 - **Ghost Mode settings (M5, draft, not merged).** A dedicated "HMX Ghost
   Mode" screen lists the privacy controls with an explanation each. The
   controls that this repository cannot implement safely — the ones that would
