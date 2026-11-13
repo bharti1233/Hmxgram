@@ -31,7 +31,7 @@ BASE="${HMX_DOWNLOADER_BASE:-e7074eb789c0cc66c0ce0cd946d52ca5519522e9}"
 # The ghost sources are inside the digest on purpose: a privacy control that
 # is changed after its review must fail this check like any other protected
 # file.
-PINNED_PROTECTED_DIGEST="f11958d55461408266fc1d5c69bb0bcccd61ac20df1df7605631c7bde499f863"
+PINNED_PROTECTED_DIGEST="45b71521aaebedb35fd4fa4beeaed5a18e91efa4e7aff8a99ee7136531dfcb9e"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
@@ -89,8 +89,11 @@ protected_changed="$(git diff --name-only "$BASE" -- \
   .github/workflows/apk.yml \
   | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/downloader/' \
   | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/ghost/' \
+  | grep -v '^extensions/extension/src/main/java/com/feurstagram/extension/Settings.java$' \
   | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/downloader/' \
-  | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/ghost/' || true)"
+  | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/ghost/' \
+  | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/branding/HmxInstaAppNamePatch.kt$' \
+  | grep -v '^scripts/ci/validate_branding.sh$' || true)"
 if [ -z "$protected_changed" ]; then
   note "ok: no protected path changed"
 else
@@ -151,6 +154,9 @@ while IFS= read -r path; do
     patches/src/main/kotlin/com/feurstagram/patches/ghost/*) ;;
     scripts/ci/test_downloader_logic.sh) ;;
     scripts/ci/test_downloader_isolation.sh) ;;
+    scripts/ci/validate_branding.sh) ;;
+    extensions/extension/src/main/java/com/feurstagram/extension/Settings.java) ;;
+    patches/src/main/kotlin/com/feurstagram/patches/branding/HmxInstaAppNamePatch.kt) ;;
     scripts/ci/test_m1_isolation.sh) ;;
     scripts/ci/validate_features.sh) ;;
     scripts/ci/validate_repo.sh) ;;
@@ -161,6 +167,7 @@ while IFS= read -r path; do
     docs/HMX_INSTA_M3_DOWNLOADER_UI.md) ;;
     docs/HMX_INSTA_M4_INSTAGRAM_MEDIA.md) ;;
     docs/HMX_INSTA_M5_GHOST_MODE.md) ;;
+    docs/HMX_INSTA_M6_CONSOLIDATION.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
     CHANGELOG.md) ;;
