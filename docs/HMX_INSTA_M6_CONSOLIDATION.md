@@ -106,14 +106,21 @@ it, including the classes nobody patched, and moves the source file index
 with the string table. The M6 build touched one more dex file than the
 previous builds, so the untouched protected classes moved.
 
-The gate now normalises the header address and the source file index, like it
-already normalised the instruction offsets and the table indices ("Table
-indices are layout, not behaviour"). Everything behavioural stays compared:
-the method name, the descriptor, the source file name, every instruction,
-register, operand and access flag, and the catch ranges. The self-test grew
-two checks (the addresses may move, the source index may move) and still
-fails on a changed opcode, a changed register and a changed access flag. The
-same 12 surfaces, the same baseline pin, the same fail-closed behaviour.
+The gate now normalises the header address, the source file index and the
+address of a data block (a switch payload), like it already normalised the
+instruction offsets and the table indices ("Table indices are layout, not
+behaviour"). Everything behavioural stays compared: the method name, the
+descriptor, the source file name, every instruction, register, operand and
+access flag, the catch ranges, and the payload bytes with the code unit
+they belong to. The self-test grew three checks (the addresses may move, the
+source index may move, the data-block address may move) and still fails on a
+changed opcode, a changed register and a changed access flag. The same 12
+surfaces, the same baseline pin, the same fail-closed behaviour.
+
+The fix was checked end to end against two real APKs: the protected
+baseline and the published M3+M4+M5 build. All **3,748** protected classes
+compare equal with the fixed gate, so a real difference is still reported
+when there is one.
 
 This was a **bug fix in the gate**, not a relaxation of it: a gate that
 fires on layout noise is a gate whose real findings get lost.
