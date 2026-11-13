@@ -50,6 +50,12 @@ ADDRESSED_HEADER_RE = re.compile(r"^[0-9a-f]+:\s+\|\[[0-9a-f]+\]\s+(.*)$")
 # The source file index is the position of the original file in the dex string
 # table. It moves when the table is rebuilt; the file name itself is stable.
 SOURCE_FILE_RE = re.compile(r"^(\s*)source_file_idx\s+:\s+\d+\s+\((.*)\)\s*$")
+# A data block (a switch payload, for example) is printed with the address it
+# lives at, followed by its bytes and its description. The bytes and the
+# description are behaviour; the address is layout.
+DATA_BLOCK_RE = re.compile(
+    r"^[0-9a-f]+:\s+([0-9a-f ]+?)\s*\.\.\.\s+\|([0-9a-f]{4}):\s+(.*)$"
+)
 DEBUG_HEADER_RE = re.compile(r"^\s*(positions|locals)\s*:")
 NEXT_AFTER_DEBUG_RE = re.compile(
     r"^\s{6}(catches|name|type|access|code|registers|ins|outs|insns size)\s*:"
@@ -129,6 +135,14 @@ def normalize_class(lines):
         match = SOURCE_FILE_RE.match(line)
         if match:
             out.append("%ssource_file: %s" % (match.group(1), match.group(2)))
+            continue
+
+        match = DATA_BLOCK_RE.match(line)
+        if match:
+            # The payload bytes, the code unit it belongs to and the
+            # description are all compared; only the address is dropped.
+            out.append("data %s: %s %s" % (
+                match.group(1).strip(), match.group(2), match.group(3)))
             continue
 
         # Table indices are layout, not behaviour.
@@ -371,6 +385,15 @@ def self_test():
     # The source file index is the position of the file in the dex string table.
     moved_source_index = list(base)
     moved_source_index[24] = "    source_file_idx   : 1615 (Guard.java)\n"
+    # A data block (a switch payload) is printed with the address it lives
+    # at, its bytes and its description.
+    base.append(
+        "0000b0: 0001 1000 0000 0000 900d 0000 040d ... |0010: packed-switch-data (4 units)\n"
+    )
+    moved_data_block = list(base)
+    moved_data_block[25] = (
+        "000900: 0001 1000 0000 0000 900d 0000 040d ... |0010: packed-switch-data (4 units)\n"
+    )
 
     checks = [
         ("identical after layout/debug noise", normalize_class(base) == normalize_class(same)),
@@ -381,6 +404,10 @@ def self_test():
         (
             "identical after the source file index moves",
             normalize_class(base) == normalize_class(moved_source_index),
+        ),
+        (
+            "identical after the data block address moves",
+            normalize_class(base) == normalize_class(moved_data_block),
         ),
         ("literal change detected", normalize_class(base) != normalize_class(changed_opcode)),
         ("register change detected", normalize_class(base) != normalize_class(changed_register)),
