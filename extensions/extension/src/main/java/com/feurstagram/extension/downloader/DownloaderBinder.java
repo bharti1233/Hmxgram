@@ -8,6 +8,7 @@ import android.widget.LinearLayout;
 import com.feurstagram.extension.downloader.android.DownloaderSwitch;
 import com.feurstagram.extension.downloader.android.HmxDownloadIcon;
 import com.feurstagram.extension.downloader.android.InContextDownloadSheet;
+import com.feurstagram.extension.downloader.android.NativeUiTrace;
 import com.feurstagram.extension.downloader.core.InContextAction;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -38,12 +39,17 @@ public final class DownloaderBinder {
 
     /** Receives only the holder and media model from the verified action-row binder. */
     public static void bindFeed(Object model, Object holder) {
+        NativeUiTrace.event("feed.hook", holder);
+        NativeUiTrace.event("feed.model", model);
         observeRow(holder, model);
     }
 
     public static void observeRow(Object holder, Object model) {
         try {
-            if (holder == null || Looper.myLooper() != Looper.getMainLooper()) return;
+            if (holder == null || Looper.myLooper() != Looper.getMainLooper()) {
+                NativeUiTrace.event("feed.reject.thread-or-holder", holder);
+                return;
+            }
             View bookmark = null;
             for (Field field : holder.getClass().getFields()) {
                 if (Modifier.isStatic(field.getModifiers())
@@ -54,14 +60,26 @@ public final class DownloaderBinder {
                         view.getContext().getPackageName());
                 View candidate = id == 0 ? null : view.findViewById(id);
                 if (candidate != null) {
-                    if (bookmark != null && bookmark != candidate) return;
+                    if (bookmark != null && bookmark != candidate) {
+                        NativeUiTrace.event("feed.reject.ambiguous-bookmark", candidate);
+                        return;
+                    }
                     bookmark = candidate;
                 }
             }
-            if (bookmark == null || !(bookmark.getParent() instanceof LinearLayout)) return;
+            NativeUiTrace.event("feed.bookmark", bookmark);
+            if (bookmark == null || !(bookmark.getParent() instanceof LinearLayout)) {
+                NativeUiTrace.event("feed.reject.parent", bookmark == null ? null : bookmark.getParent());
+                if (bookmark != null && bookmark.getParent() instanceof ViewGroup)
+                    NativeUiTrace.children("feed.parent", (ViewGroup) bookmark.getParent());
+                return;
+            }
             LinearLayout row = (LinearLayout) bookmark.getParent();
             if (row.getOrientation() != LinearLayout.HORIZONTAL
-                    || row.getLayoutDirection() != View.LAYOUT_DIRECTION_LTR) return;
+                    || row.getLayoutDirection() != View.LAYOUT_DIRECTION_LTR) {
+                NativeUiTrace.event("feed.reject.orientation", row);
+                return;
+            }
             install(row);
             HmxDownloadIcon icon = null;
             for (int i = 0; i < row.getChildCount(); i++) {
@@ -77,13 +95,18 @@ public final class DownloaderBinder {
                 params.weight = 0f;
                 params.width = Math.round(40 * row.getResources().getDisplayMetrics().density);
                 row.addView(icon, row.indexOfChild(bookmark), params);
+                NativeUiTrace.event("feed.created", icon);
+                final HmxDownloadIcon measured = icon;
+                icon.post(() -> NativeUiTrace.event("feed.after-layout", measured));
                 ICONS.add(icon);
                 final HmxDownloadIcon control = icon;
                 control.setOnClickListener(view -> {
                     try {
                         if (!control.isAttachedToWindow() || !control.isShown()) return;
                         long generation = control.bindingGeneration();
-                        InContextDownloadSheet.showBound(control.getContext(), control.media(),
+                        com.feurstagram.extension.downloader.core.ObservedMedia selected = control.media();
+                        NativeUiTrace.event(selected == null ? "feed.tap.unresolved" : "feed.tap.resolved", control);
+                        InContextDownloadSheet.showBound(control.getContext(), selected,
                                 InContextAction.Surface.FEED, "feed-action-row",
                                 () -> control.isAttachedToWindow() && control.isShown()
                                         && control.bindingGeneration() == generation);
@@ -91,9 +114,11 @@ public final class DownloaderBinder {
                 });
             }
             icon.bindModel(model, InContextAction.Surface.FEED, "feed-action-row");
+            NativeUiTrace.event("feed.bound", icon);
             icon.setVisibility(DownloaderSwitch.isEnabled(row.getContext())
                     ? View.VISIBLE : View.GONE);
         } catch (Throwable ignored) {
+            NativeUiTrace.event("feed.exception", ignored);
             // An unsupported host layout must not affect Instagram.
         }
     }

@@ -97,10 +97,17 @@ public final class HmxDownloadIcon extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        NativeUiTrace.event("icon.detached", this);
         bindingGeneration.invalidate();
         boundModel = null;
         resolved = null;
         super.onDetachedFromWindow();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        NativeUiTrace.event("icon.attached", this);
     }
 
     InContextAction.Surface surface() {

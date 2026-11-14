@@ -53,6 +53,7 @@ public final class DownloaderSwitch {
         }
         try {
             preferences.edit().putBoolean(KEY_ENABLED, value).apply();
+            NativeUiTrace.event(value ? "switch.on" : "switch.off", null);
             for (Runnable listener : LISTENERS) {
                 try { listener.run(); } catch (Throwable ignored) { }
             }
