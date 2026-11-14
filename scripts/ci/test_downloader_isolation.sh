@@ -42,7 +42,12 @@ BASE="${HMX_DOWNLOADER_BASE:-a94b5e191117ab9d8e266eaf497059c437761314}"
 # a video is read as a video. The core reader, the observer and the overlay
 # live outside this digest by design; every other digested file is
 # byte-identical to the previous pin.
-PINNED_PROTECTED_DIGEST="ad132351e960225ae8450a3819279c5b6555af52ee3e80bbb2cb5ae68a61f94e"
+#
+# Re-pinned for the M9 build fix: the video accessor's implementation is
+# nullable, and the first gated build caught it. The read is now
+# null-safe (`?.instructions.orEmpty()`), so a body-less method is reported
+# instead of failing the Kotlin compile. No other digested file changed.
+PINNED_PROTECTED_DIGEST="0a222db53624607e75591d60b2e4e986d0f5a714bde6dd73e8b82b3711a549fa"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 

@@ -146,9 +146,11 @@ val downloaderMediaObserverPatch = bytecodePatch(
             if (target == null) {
                 println("HMX: the video accessor is not patchable")
             } else {
-                val returns = target.implementation.instructions.filter {
-                    it.opcode == Opcode.RETURN_OBJECT
-                }
+                // The implementation is nullable: a method without a body has
+                // nothing to read, and is reported instead of crashed on.
+                val returns = target.implementation?.instructions
+                    ?.filter { it.opcode == Opcode.RETURN_OBJECT }
+                    .orEmpty()
                 if (returns.isEmpty()) {
                     println("HMX: the video accessor has no return object to read")
                 } else {
