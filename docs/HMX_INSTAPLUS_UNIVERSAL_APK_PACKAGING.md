@@ -232,7 +232,7 @@ Checks:
 ### Patch report
 
 ```sh
-MIN_APPLIED_PATCHES=10 \
+MIN_APPLIED_PATCHES=14 \
 EXPECTED_PATCHES="Force SDR display,Feed item filtering,..." \
 python3 scripts/ci/verify_patch_report.py build/patch-report.json
 ```

@@ -1,10 +1,13 @@
 name: APK build (gated)
 
-# Manual, reviewed, main-only APK build.
+# Manual, reviewed APK build.
 #
 # Security properties enforced by this workflow:
-#   - Runs only from refs/heads/main and only through the apk-build environment,
-#     which has a required reviewer and a main-only deployment policy.
+#   - Runs only from an exact allowlisted ref: refs/heads/main or the single v2
+#     milestone branch, and only through the apk-build environment, which has a
+#     required reviewer.
+#   - The environment branch policy must allow the same exact refs; a ref that
+#     is not allowlisted here never reaches the environment or its secrets.
 #   - The base APK is pinned by immutable asset URL + SHA-256 and is re-checked
 #     for package, version, and Meta signing certificate before patching.
 #   - The Instagram signature-check bypass is disabled unless explicitly
@@ -57,6 +60,21 @@ on:
         required: true
         default: false
         type: boolean
+      enable_downloader:
+        description: Apply the downloader's own default-off patches (the share target and the media observer). The patch report must then list them
+        required: true
+        default: false
+        type: boolean
+      enable_ghost:
+        description: Apply the default-off "Ghost Mode settings" patch (the privacy screen). The patch report must then list it
+        required: true
+        default: false
+        type: boolean
+      enable_incontext:
+        description: Apply the default-off "In-context download actions" patch (the HMX download chip over feed, reels and stories). Implies enable_downloader and must be listed in the patch report
+        required: true
+        default: false
+        type: boolean
       run_install_test:
         description: Run an adb install smoke test on an attached arm64 API 35 device (GitHub-hosted runners have none; leave false and the device test is reported as pending)
         required: true
@@ -80,8 +98,13 @@ jobs:
     name: Build patched APK
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # Hard guard in addition to the apk-build environment branch policy.
-    if: github.ref == 'refs/heads/main'
+    # Hard guard in addition to the environment branch policy. Keep this an
+    # exact allowlist: never a prefix or wildcard. Milestone builds run from
+    # feature/hmx-downloader-ghost-mode-v2; everything else is rejected before
+    # the environment is requested.
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/feature/hmx-downloader-ghost-mode-v2'
     environment: apk-build
     env:
       EXPECTED_INSTAGRAM_PACKAGE: com.instagram.android
@@ -89,8 +112,15 @@ jobs:
       EXPECTED_INSTAGRAM_VERSION_CODE: '386014712'
       EXPECTED_META_CERT_SHA256: 3a10c50c18ba937506c2875e9047be74f8fd8b86fae2ff9feaa50a81fcb4c014
       MIN_RES_ENTRIES: '12000'
-      MIN_APPLIED_PATCHES: '10'
+      MIN_APPLIED_PATCHES: '14'
       EXPECTED_PATCHES: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name'
+      # The reviewed M2 build adds one more default-off patch. The expectation
+      # switches to this list only when enable_downloader is true, so an
+      # ordinary build still has to pass the unchanged 14-patch expectation.
+      EXPECTED_PATCHES_WITH_DOWNLOADER: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer'
+      EXPECTED_PATCHES_WITH_GHOST: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer,Ghost Mode settings'
+      EXPECTED_PATCHES_WITH_INCONTEXT: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer,In-context download actions'
+      EXPECTED_PATCHES_WITH_INCONTEXT_GHOST: 'Force SDR display,Feed item filtering,Limit feed to following profiles,Network content blocking,Suggested accounts in the story tray,Quoicouview assets,Quoicouview mode,Restart relay,Hidden Home in Back history,Settings entry point,Notes tray,Popup hiding,Install-packages permission,HMX Insta app name,Downloader share target,Downloader media observer,In-context download actions,Ghost Mode settings'
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -145,6 +175,9 @@ jobs:
           ALLOW_THROWAWAY: ${{ inputs.allow_throwaway_signature }}
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
           PUBLISH_TEST_APK: ${{ inputs.publish_test_apk }}
+          ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
+          ENABLE_GHOST: ${{ inputs.enable_ghost }}
+          ENABLE_INCONTEXT: ${{ inputs.enable_incontext }}
           DIST_TOKEN: ${{ secrets.DIST_TOKEN }}
           HAS_RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
@@ -221,6 +254,28 @@ jobs:
               echo "::error title=Token separation::DIST_TOKEN must be a different token from BASE_APK_TOKEN."
               exit 1
             }
+          fi
+
+          # The downloader share target is default-off in the patch source. A
+          # build that asks for it must therefore expect it in the patch report,
+          # and a build that does not ask for it must not contain it. The
+          # in-context action sits on top of the downloader and implies it.
+          if [ "$ENABLE_GHOST" = "true" ] && [ "$ENABLE_INCONTEXT" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_INCONTEXT_GHOST" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=18" >> "$GITHUB_ENV"
+            echo "::notice::The in-context download action and Ghost Mode patches are enabled for this build."
+          elif [ "$ENABLE_GHOST" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_GHOST" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=17" >> "$GITHUB_ENV"
+            echo "::notice::The Ghost Mode settings patch is enabled for this build."
+          elif [ "$ENABLE_INCONTEXT" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_INCONTEXT" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=17" >> "$GITHUB_ENV"
+            echo "::notice::The in-context download action is enabled for this build."
+          elif [ "$ENABLE_DOWNLOADER" = "true" ]; then
+            echo "EXPECTED_PATCHES=$EXPECTED_PATCHES_WITH_DOWNLOADER" >> "$GITHUB_ENV"
+            echo "MIN_APPLIED_PATCHES=16" >> "$GITHUB_ENV"
+            echo "::notice::The downloader patches are enabled for this build."
           fi
 
       - name: Enforce least-privilege private-asset token
@@ -435,6 +490,9 @@ jobs:
         env:
           CLONE: ${{ inputs.clone }}
           ALLOW_SIGNATURE_BYPASS: ${{ inputs.allow_signature_bypass }}
+          ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
+          ENABLE_GHOST: ${{ inputs.enable_ghost }}
+          ENABLE_INCONTEXT: ${{ inputs.enable_incontext }}
           DISABLE_PATCHES: ${{ inputs.disable_patches }}
           RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
@@ -448,6 +506,15 @@ jobs:
           fi
           if [ "$ALLOW_SIGNATURE_BYPASS" = "true" ]; then
             args+=(--allow-signature-bypass)
+          fi
+          if [ "${ENABLE_DOWNLOADER:-false}" = "true" ]; then
+            args+=(--downloader)
+          fi
+          if [ "${ENABLE_INCONTEXT:-false}" = "true" ]; then
+            args+=(--incontext)
+          fi
+          if [ "${ENABLE_GHOST:-false}" = "true" ]; then
+            args+=(--ghost)
           fi
           bash ./build.sh "${args[@]}" 2>&1 | tee -a "$RUNNER_TEMP/apk-build.log"
 
@@ -519,6 +586,47 @@ jobs:
           echo "APK_SHA256=$(sha256sum feurstagram.apk | awk '{print $1}')" >> "$GITHUB_ENV"
           echo "APK_CERT_SHA256=$signer" >> "$GITHUB_ENV"
 
+      - name: Verify protected Instagram methods
+        env:
+          BASE_APK_TOKEN: ${{ secrets.BASE_APK_TOKEN }}
+          DIST_REPO: bharti1233/hmx-build-inputs
+          PROTECTED_TAG: hmx-baseline-454-verified
+          PROTECTED_ASSET: hmx-insta-454.0.0.54.77-test.apk
+        run: |
+          set -euo pipefail
+          bash scripts/ci/test_protected_methods.sh
+
+          mkdir -p "$RUNNER_TEMP/hmx-baseline"
+          auth="$RUNNER_TEMP/baseline-auth.header"
+          umask 077
+          printf 'Authorization: Bearer %s\n' "$BASE_APK_TOKEN" > "$auth"
+          trap 'rm -f "$auth"' EXIT
+          api="https://api.github.com/repos/$DIST_REPO"
+
+          # Fail closed if the frozen reference is missing or was tampered with:
+          # the verifier also checks the manifest pin against these exact bytes.
+          release="$(curl -sS --fail -H @"$auth" \
+            -H 'Accept: application/vnd.github+json' \
+            "$api/releases/tags/$PROTECTED_TAG")"
+          asset_url="$(printf '%s' "$release" | jq -r \
+            --arg name "$PROTECTED_ASSET" \
+            '.assets[] | select(.name == $name) | .url' | head -1)"
+          if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
+            echo "::error title=Missing protected baseline::Release $DIST_REPO@$PROTECTED_TAG has no asset $PROTECTED_ASSET."
+            exit 1
+          fi
+          curl --fail --location --retry 3 --retry-delay 5 \
+            --proto '=https' --tlsv1.2 --max-time 600 --silent --show-error \
+            -H @"$auth" -H 'Accept: application/octet-stream' \
+            -o "$RUNNER_TEMP/hmx-baseline/baseline.apk" "$asset_url"
+
+          python3 scripts/ci/verify_protected_methods.py \
+            --manifest scripts/ci/protected_methods.json \
+            --baseline "$RUNNER_TEMP/hmx-baseline/baseline.apk" \
+            --candidate "$APK_OUT" \
+            --report "$RUNNER_TEMP/protected-methods-report.json"
+          rm -rf "$RUNNER_TEMP/hmx-baseline"
+
       - name: Install smoke test on arm64 Android 15
         if: inputs.run_install_test
         env:
@@ -541,6 +649,9 @@ jobs:
           PUBLISH_TAG: debug-test-${{ github.run_id }}-${{ github.run_attempt }}
           REQUESTED_VERSION: ${{ inputs.instagram_version }}
           CLONE: ${{ inputs.clone }}
+          ENABLE_DOWNLOADER: ${{ inputs.enable_downloader }}
+          ENABLE_GHOST: ${{ inputs.enable_ghost }}
+          ENABLE_INCONTEXT: ${{ inputs.enable_incontext }}
           EXPECTED_PACKAGE: com.instagram.android
         run: |
           set -euo pipefail
@@ -558,6 +669,24 @@ jobs:
             echo "::error::Refusing to use the protected tag"; exit 1; }
           [[ "${PUBLISH_TAG}" =~ ^debug-test-[0-9]+-[0-9]+$ ]] || {
             echo "::error::Publish tag does not match debug-test-<run>-<attempt>"; exit 1; }
+
+          # The published bytes must carry what the build was asked for: when
+          # the downloader share target was enabled, the patch report has to
+          # list it, so a build that silently skipped it is never published.
+          if [ "${ENABLE_DOWNLOADER:-false}" = "true" ]; then
+            grep -qF 'Downloader share target' build/patch-report.json || {
+              echo "::error::The patch report does not list the Downloader share target patch"; exit 1; }
+            grep -qF 'Downloader media observer' build/patch-report.json || {
+              echo "::error::The patch report does not list the Downloader media observer patch"; exit 1; }
+          fi
+          if [ "${ENABLE_INCONTEXT:-false}" = "true" ]; then
+            grep -qF 'In-context download actions' build/patch-report.json || {
+              echo "::error::The patch report does not list the In-context download actions patch"; exit 1; }
+          fi
+          if [ "${ENABLE_GHOST:-false}" = "true" ]; then
+            grep -qF 'Ghost Mode settings' build/patch-report.json || {
+              echo "::error::The patch report does not list the Ghost Mode settings patch"; exit 1; }
+          fi
 
           # Verify the exact bytes and signer against the locally generated build report.
           sha256sum -c feurstagram.apk.sha256
@@ -637,6 +766,16 @@ jobs:
             echo "- Instagram version (verified against base): \`${REQUESTED_VERSION}\`"
             echo "- Base input kind: \`${{ inputs.base_apk_kind }}\`"
             echo "- Clone package: \`${CLONE}\`"
+            if [ "${{ inputs.enable_downloader }}" = "true" ]; then
+              echo "- Downloader patches: **ENABLED** (the patch report must list the share target and the media observer)"
+            else
+              echo "- Downloader patches: **disabled** (default-off patches, not applied)"
+            fi
+            if [ "${{ inputs.enable_incontext }}" = "true" ]; then
+              echo "- In-context download actions: **ENABLED** (HMX chip over feed, reels and stories; the patch report must list it)"
+            else
+              echo "- In-context download actions: **disabled** (default-off patch, not applied)"
+            fi
             case "${SIGNING_MODE:-}" in
               release) echo "- Signing mode: **release keystore** (certificate pinned by \`RELEASE_CERT_SHA256\`)" ;;
               throwaway) echo "- Signing mode: **throwaway test key** (test artifact, not for distribution)" ;;
@@ -652,6 +791,7 @@ jobs:
               echo "- Device install test: **not run** (\`run_install_test=false\`); arm64 Android 15 installation remains pending verification"
             fi
             echo "- Standalone packaging: validated (no split metadata, merged density resources)"
+            echo "- Protected Instagram methods: verified against \`hmx-baseline-454-verified\` (protected-methods-report.json)"
             echo "- Artifact file: \`${APK_OUT}\`"
             echo "- SHA-256:"
             echo '```'
@@ -684,6 +824,7 @@ jobs:
             feurstagram-*.apk.sha256
             ${{ runner.temp }}/apk-certs.txt
             ${{ runner.temp }}/standalone-validation.txt
+            ${{ runner.temp }}/protected-methods-report.json
             ${{ github.workspace }}/build/patch-report.json
           if-no-files-found: error
           retention-days: 7

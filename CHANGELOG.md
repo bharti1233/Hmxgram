@@ -4,7 +4,112 @@ All notable changes to Feurstagram should be documented in this file.
 
 ## Unreleased
 
-Nothing yet.
+### Fixed
+- **M7 startup crash on the login screen (2026-11-13).** The in-context chip
+  was a plain `TextView` built from the window's own context. On the signed-out
+  launcher screen (`BloksSignedOutFragmentActivity`) that context carries
+  `Base.Theme.Launcher`, a partial splash theme whose text appearance points at
+  `igds_color_secondary_text` (`0x7f040820`) while the forced fallback theme
+  does not define it. `TextView.readTextAppearance` then threw
+  `UnsupportedOperationException: Failed to resolve attribute at index 7` and
+  Instagram died while loading the login screen. The chip is now built with a
+  `ContextThemeWrapper` over the Activity and a framework theme the extension
+  owns; attachment waits for a real Activity context, is wrapped in a
+  fail-safe `Throwable` guard, refuses duplicates, and releases its observer
+  and clock when the host window goes away. The standalone Downloader screen
+  and the Share Target are untouched.
+
+### Added
+- **In-context download actions (M7, draft, not merged).** A draggable HMX
+  "save" chip appears over supported feed posts, reels and story media and
+  opens a confirmation sheet before anything is queued. It is an HMX-owned view
+  in Instagram's window, not a button injected into a post: the protected row
+  binder and the views inside a post are untouched. It reuses the existing
+  read-only media observation and the existing download engine, so duplicate
+  detection, progress and completion notifications, the persisted queue and the
+  verified MediaStore publish all apply. Carousels are expanded into their
+  usable children. The patch is default-off (`--incontext` / `enable_incontext`)
+  and a build without it never reaches the overlay. Per-row buttons remain
+  unimplemented because they would require changing the protected row binder;
+  private or expired stories are refused, never claimed.
+- **One integrated application (M6, draft, not merged).** The downloader and
+  the privacy screen are no longer separate launcher entries: both are opened
+  from the HMX Insta settings (long-press Home), inside Instagram, and the
+  app keeps exactly one icon, now labelled **HMX Insta+**. The privacy screen
+  no longer crashes (the manifest named a class the app does not ship), and
+  the downloader actually observes the media now (the hook's fingerprint is
+  matched against the method, which is where the key lives). Two new gates
+  fail closed if a declared component is missing or if a feature adds a
+  launcher entry.
+- **Ghost Mode settings (M5, draft, not merged).** A dedicated "HMX Ghost
+  Mode" screen lists the privacy controls with an explanation each. The
+  controls that this repository cannot implement safely — the ones that would
+  need Instagram's request paths changed — are shown with the exact reason
+  and cannot be switched on. The two local controls that do work ("ask before
+  saving", "hide the download history") are real, and their preferences live
+  in their own file, off by default.
+- **Instagram media integration (M4, draft, not merged).** A default-off hook
+  records the media the user browses, so the downloader can save it from
+  inside the app instead of only through the share sheet. The observation is
+  read-only: it reads a model Instagram already parsed, touches no view,
+  scans no hierarchy and intercepts no request. The downloader screen lists
+  what was seen and queues it on demand.
+- **Downloader screen (M3, draft, not merged).** A dedicated "HMX Insta
+  Downloader" screen shows the real queue and history of the download engine:
+  queued, running, finished, failed and cancelled items, per-task progress,
+  and the Retry, Cancel and Delete actions the engine allows. The screen is a
+  view over the existing core — it holds no state of its own — and it is
+  declared by the same default-off downloader patch as the share target, so
+  the whole feature stays behind one review gate. No Instagram login, session,
+  feed, story, reel, profile or navigation code is touched.
+- **Downloader share target (M2, draft, not merged into `main`).** An invisible
+  share activity saves shared photos, videos and audio to `Pictures/HMXInsta`,
+  `Movies/HMXInsta` and `Music/HMXInsta`, with a bounded worker queue, MediaStore
+  `IS_PENDING` publishing, preferences-backed history and duplicate detection,
+  notifications, a `dataSync` foreground download service with pending-work
+  replay after a process kill, and a bounded cache janitor. The share-target
+  patch is default-off; the Instagram integration, login, auth, session and feed
+  code are unchanged.
+- **Downloader core (M1).** Pure-Java media models, bounded download queue with
+  retry and duplicate policy, in-memory history and storage plans under
+  `extensions/.../downloader/core`, with plain-JDK unit tests and static
+  isolation gates. `content://` share sources and the versioned history codec
+  landed with M2.
+
+### Fixed
+- **Media-observer re-entrancy (M7, draft).** Reading an observed model invokes
+  the same media accessor the Instagram hook is installed on. The observer now
+  guards that read per thread, so a single observation is queued once instead
+  of re-queuing itself forever. Instagram's own calls are unchanged.
+- **M2 audit findings F1-F7 (draft branch, not merged).**
+  - *F1:* the Android 13+ `POST_NOTIFICATIONS` permission is now requested once
+    per install from the share activity; a denial is remembered and respected,
+    and the save completes either way.
+  - *F2:* an `audio/*` share is saved directly as audio, and the extraction
+    decision moved to `AudioSourcePolicy` (direct audio, extraction only from
+    MP4-family containers, an honest `unsupported` refusal for everything
+    else). An empty mux output is reported as a failure instead of publishing
+    a silent file. Video-to-audio extraction still has no M2 entry point and is
+    not claimed to work.
+  - *F3:* the queue runs under a declared, non-exported `dataSync` foreground
+    service, and every accepted item is written to a durable pending-work
+    ledger that is replayed on the next start, so a killed process does not lose
+    a queued download. The ColorOS and Android 15 limits are documented.
+  - *F4:* shared streams are now collected from `EXTRA_STREAM` **and**
+    `ClipData`, merged and de-duplicated, so a sender that only fills the
+    ClipData is no longer rejected.
+  - *F5:* cancellation is checked through the whole lifecycle, including inside
+    the MediaStore publish; a cancelled publish deletes the pending row and a
+    late cancellation deletes the published row, so no cancelled task leaves a
+    finished file behind.
+  - *F6:* the exported surface was narrowed — only the share activity is
+    exported, the provider and the download service are not.
+  - *F7:* the share cache and interrupted temp files are now reclaimed by a
+    bounded janitor that runs only when no task is active, so an active task's
+    files are never deleted.
+
+  The plain-JDK core test suite grew to 33 groups covering the new policies;
+  the device checklist still records every device row as NOT TESTED.
 
 ## v454-0-0-54-77
 
