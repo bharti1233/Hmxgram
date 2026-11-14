@@ -2,48 +2,57 @@ package com.feurstagram.extension.downloader.android;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.ThumbnailUtils;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.LruCache;
+import android.util.Size;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.feurstagram.extension.downloader.core.DownloadKind;
-import com.feurstagram.extension.downloader.core.DownloadQueue;
-import com.feurstagram.extension.downloader.core.DownloadState;
 import com.feurstagram.extension.downloader.core.DownloaderRow;
-import com.feurstagram.extension.downloader.core.MediaItem;
-import com.feurstagram.extension.downloader.core.ObservedMedia;
 import com.feurstagram.extension.ghost.GhostFeature;
 import com.feurstagram.extension.ghost.android.GhostState;
 
+import java.io.File;
+import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * The HMX Insta downloader screen.
  *
  * <p>The screen is a view over the engine, never a second source of truth:
  * every row is built from {@link HmxDownloader#rows()}, which projects the
- * queue and the persisted history. A row is only shown as saved when the
- * engine finished the task with a published path.
+ * queue and the persisted history. It shows only downloads the user
+ * explicitly requested — passive observations made while browsing are never
+ * entries here.
  *
- * <p>The screen offers exactly the actions the engine allows for a row:
- * cancel while the task is active, retry when the failure is recoverable and
- * attempts remain, and delete for a finished entry. Deleting removes the
- * history entry; the file that was already written to the gallery stays.
+ * <p>A row shows the media type, the original username when the media exposed
+ * one, the status, the progress, the download date, and the actions the
+ * engine allows: retry, cancel and delete. Deleting removes the history entry;
+ * the file already saved in the gallery stays.
  *
  * <p>It uses platform widgets only (no AndroidX, no third-party dependency)
- * and touches no Instagram class. The refresh is driven by the engine's change
- * listener plus a slow poll, so a transfer started from the share target also
- * shows up here.
+ * and touches no Instagram class.
  */
 public final class DownloaderActivity extends Activity {
 
@@ -51,10 +60,21 @@ public final class DownloaderActivity extends Activity {
     private static final int COLOR_OK = 0xFF1B5E20;
     private static final int COLOR_BAD = 0xFFB71C1C;
     private static final int COLOR_MUTED = 0xFF616161;
+    private static final int THUMB_DP = 72;
+    private static final int THUMB_CACHE = 24;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<DownloaderRow> rows = new ArrayList<DownloaderRow>();
-    private final List<ObservedMedia> observed = new ArrayList<ObservedMedia>();
+    private final ExecutorService thumbs = Executors.newSingleThreadExecutor();
+    private final LruCache<String, Bitmap> thumbnails =
+            new LruCache<String, Bitmap>(THUMB_CACHE) {
+                @Override
+                protected int sizeOf(String key, Bitmap value) {
+                    return Math.max(1, value.getByteCount() / 1024);
+                }
+            };
+    private final DateFormat dateFormat =
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT);
 
     private HmxDownloader downloader;
     private ListView list;
@@ -127,6 +147,13 @@ public final class DownloaderActivity extends Activity {
         super.onPause();
     }
 
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacks(poll);
+        thumbs.shutdownNow();
+        super.onDestroy();
+    }
+
     private View buildContent() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -140,7 +167,8 @@ public final class DownloaderActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Queued, active and finished downloads of this app.");
+        subtitle.setText("Only the downloads you requested. Tap HMX save on a photo,"
+                + " video or Reel to start one.");
         subtitle.setTextSize(13f);
         subtitle.setTextColor(COLOR_MUTED);
         root.addView(subtitle);
@@ -160,7 +188,8 @@ public final class DownloaderActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         empty = new TextView(this);
-        empty.setText("No downloads yet. Share a photo, a video or an audio file to HMX Insta and it will appear here.");
+        empty.setText("No downloads yet. Tap the HMX save chip on a photo, video or"
+                + " Reel and confirm; it will appear here.");
         empty.setTextSize(14f);
         empty.setTextColor(COLOR_MUTED);
         empty.setGravity(Gravity.CENTER);
@@ -211,27 +240,22 @@ public final class DownloaderActivity extends Activity {
             banner.setVisibility(DownloaderSwitch.isEnabled(getApplicationContext())
                     ? View.GONE : View.VISIBLE);
         }
-        List<ObservedMedia> seen = MediaObserver.observed();
         List<DownloaderRow> current = downloader.rows();
-        if (historyHidden() && !historyRevealed) {
+        boolean hidden = historyHidden() && !historyRevealed;
+        if (hidden) {
             // The Ghost Mode control keeps the list hidden until the user
             // asks for it.
             current = new ArrayList<DownloaderRow>();
         }
-        if (sameRows(current) && sameObserved(seen)) {
+        if (sameRows(current)) {
             return;
         }
         rows.clear();
         rows.addAll(current);
-        observed.clear();
-        observed.addAll(seen);
         adapter.notifyDataSetChanged();
-        boolean hidden = historyHidden() && !historyRevealed;
         reveal.setVisibility(hidden ? View.VISIBLE : View.GONE);
-        empty.setVisibility(!hidden && rows.isEmpty() && observed.isEmpty()
-                ? View.VISIBLE : View.GONE);
-        list.setVisibility(!hidden && rows.isEmpty() && observed.isEmpty()
-                ? View.GONE : View.VISIBLE);
+        empty.setVisibility(!hidden && rows.isEmpty() ? View.VISIBLE : View.GONE);
+        list.setVisibility(!hidden && rows.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     /** Whether the Ghost Mode control keeps the history hidden. */
@@ -256,19 +280,6 @@ public final class DownloaderActivity extends Activity {
         return true;
     }
 
-    /** Whether the observed media are the ones already shown. */
-    private boolean sameObserved(List<ObservedMedia> current) {
-        if (current.size() != observed.size()) {
-            return false;
-        }
-        for (int index = 0; index < current.size(); index++) {
-            if (!current.get(index).equals(observed.get(index))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private void act(String message) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
@@ -277,28 +288,17 @@ public final class DownloaderActivity extends Activity {
         return (int) (value * getResources().getDisplayMetrics().density);
     }
 
-    /** Renders the engine's rows and the media the user has been looking at. */
+    /** Renders exactly the downloads the engine holds. */
     private final class RowAdapter extends BaseAdapter {
-
-        private static final int TYPE_OBSERVED = 0;
-        private static final int TYPE_HEADER = 1;
-        private static final int TYPE_DOWNLOAD = 2;
-
-        private int total() {
-            return observed.size() + (rows.isEmpty() ? 0 : 1 + rows.size());
-        }
 
         @Override
         public int getCount() {
-            return total();
+            return rows.size();
         }
 
         @Override
         public Object getItem(int position) {
-            if (position < observed.size()) {
-                return observed.get(position);
-            }
-            return rows.get(position - observed.size() - 1);
+            return rows.get(position);
         }
 
         @Override
@@ -307,236 +307,289 @@ public final class DownloaderActivity extends Activity {
         }
 
         @Override
-        public int getViewTypeCount() {
-            return 3;
-        }
-
-        @Override
-        public int getItemViewType(int position) {
-            if (position < observed.size()) {
-                return TYPE_OBSERVED;
-            }
-            if (position == observed.size()) {
-                return TYPE_HEADER;
-            }
-            return TYPE_DOWNLOAD;
-        }
-
-        @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            int type = getItemViewType(position);
-            if (type == TYPE_OBSERVED) {
-                return observedView(position, convertView);
-            }
-            if (type == TYPE_HEADER) {
-                return headerView(convertView);
-            }
-            final DownloaderRow row = rows.get(position - observed.size() - 1);
             LinearLayout holder = (LinearLayout) convertView;
+            RowViews views;
             if (holder == null) {
                 holder = buildRow();
-            }
-            bindRow(holder, row);
-            return holder;
-        }
-
-        private View observedView(int position, View convertView) {
-            final ObservedMedia media = observed.get(position);
-            LinearLayout holder = (LinearLayout) convertView;
-            if (holder == null) {
-                holder = new LinearLayout(DownloaderActivity.this);
-                holder.setOrientation(LinearLayout.VERTICAL);
-                holder.setPadding(dp(8), dp(8), dp(8), dp(8));
-
-                TextView name = new TextView(DownloaderActivity.this);
-                name.setTextSize(15f);
-                holder.addView(name);
-
-                TextView status = new TextView(DownloaderActivity.this);
-                status.setTextSize(13f);
-                status.setTextColor(COLOR_MUTED);
-                holder.addView(status);
-
-                Button download = new Button(DownloaderActivity.this);
-                download.setText("Download");
-                download.setTextSize(12f);
-                holder.addView(download);
-            }
-            TextView name = (TextView) holder.getChildAt(0);
-            TextView status = (TextView) holder.getChildAt(1);
-            Button download = (Button) holder.getChildAt(2);
-
-            name.setText(observedTitle(media));
-            status.setText(observedSubtitle(media));
-            download.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    onDownloadObserved(media);
-                }
-            });
-            return holder;
-        }
-
-        private View headerView(View convertView) {
-            TextView header = (TextView) convertView;
-            if (header == null) {
-                header = new TextView(DownloaderActivity.this);
-                header.setTextSize(13f);
-                header.setTextColor(COLOR_MUTED);
-                header.setPadding(dp(8), dp(12), dp(8), dp(4));
-            }
-            header.setText("Downloads");
-            return header;
-        }
-
-        private LinearLayout buildRow() {
-            LinearLayout holder = new LinearLayout(DownloaderActivity.this);
-            holder.setOrientation(LinearLayout.VERTICAL);
-            holder.setPadding(dp(8), dp(8), dp(8), dp(8));
-
-            TextView name = new TextView(DownloaderActivity.this);
-            name.setTextSize(15f);
-            holder.addView(name);
-
-            TextView status = new TextView(DownloaderActivity.this);
-            status.setTextSize(13f);
-            holder.addView(status);
-
-            LinearLayout actions = new LinearLayout(DownloaderActivity.this);
-            actions.setOrientation(LinearLayout.HORIZONTAL);
-            holder.addView(actions);
-
-            LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            actions.addView(actionButton("Retry"), buttonParams);
-            actions.addView(actionButton("Cancel"), buttonParams);
-            actions.addView(actionButton("Delete"), buttonParams);
-            return holder;
-        }
-
-        private Button actionButton(String text) {
-            Button button = new Button(DownloaderActivity.this);
-            button.setText(text);
-            button.setTextSize(12f);
-            return button;
-        }
-
-        private void bindRow(LinearLayout holder, DownloaderRow row) {
-            TextView name = (TextView) holder.getChildAt(0);
-            TextView status = (TextView) holder.getChildAt(1);
-            LinearLayout actions = (LinearLayout) holder.getChildAt(2);
-
-            name.setText(row.title());
-            status.setText(row.statusLabel());
-            if (row.isVerified()) {
-                status.setTextColor(COLOR_OK);
-            } else if (row.state() == DownloadState.FAILED) {
-                status.setTextColor(COLOR_BAD);
+                views = (RowViews) holder.getTag();
             } else {
-                status.setTextColor(COLOR_MUTED);
+                views = (RowViews) holder.getTag();
             }
-
-            Button retry = (Button) actions.getChildAt(0);
-            Button cancel = (Button) actions.getChildAt(1);
-            Button delete = (Button) actions.getChildAt(2);
-            retry.setVisibility(row.canRetry() ? View.VISIBLE : View.GONE);
-            cancel.setVisibility(row.canCancel() ? View.VISIBLE : View.GONE);
-            delete.setVisibility(row.canDelete() ? View.VISIBLE : View.GONE);
-
-            // The listeners are bound per row: the view is recycled, so a
-            // listener captured when the view was created would act on a
-            // different item later.
-            retry.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    onRetry(row);
-                }
-            });
-            cancel.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    onCancel(row);
-                }
-            });
-            delete.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    onDelete(row);
-                }
-            });
+            bindRow(views, rows.get(position));
+            return holder;
         }
     }
 
-    /** The title of an observed media in the list. */
-    private String observedTitle(ObservedMedia media) {
-        if (media.kind().isContainer()) {
-            return "Carousel (" + media.children().size() + " items)";
-        }
-        return media.kind() == DownloadKind.VIDEO ? "Video" : "Photo";
+    /** The views of one row, so binding never depends on child indexes. */
+    private static final class RowViews {
+        ImageView thumbnail;
+        TextView placeholder;
+        TextView title;
+        TextView meta;
+        TextView status;
+        ProgressBar progress;
+        Button retry;
+        Button cancel;
+        Button delete;
     }
 
-    /** The subtitle of an observed media in the list. */
-    private String observedSubtitle(ObservedMedia media) {
-        StringBuilder text = new StringBuilder();
-        if (media.width() > 0 && media.height() > 0) {
-            text.append(media.width()).append('×').append(media.height());
+    private LinearLayout buildRow() {
+        LinearLayout holder = new LinearLayout(DownloaderActivity.this);
+        holder.setOrientation(LinearLayout.HORIZONTAL);
+        holder.setPadding(dp(8), dp(8), dp(8), dp(8));
+
+        RowViews views = new RowViews();
+
+        FrameLayout thumbBox = new FrameLayout(DownloaderActivity.this);
+        int thumbSize = dp(THUMB_DP);
+        LinearLayout.LayoutParams thumbParams =
+                new LinearLayout.LayoutParams(thumbSize, thumbSize);
+        thumbParams.setMargins(0, 0, dp(12), 0);
+        holder.addView(thumbBox, thumbParams);
+
+        views.placeholder = new TextView(DownloaderActivity.this);
+        views.placeholder.setTextSize(11f);
+        views.placeholder.setGravity(Gravity.CENTER);
+        views.placeholder.setTextColor(0xFFFFFFFF);
+        views.placeholder.setBackgroundColor(COLOR_MUTED);
+        thumbBox.addView(views.placeholder, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        views.thumbnail = new ImageView(DownloaderActivity.this);
+        views.thumbnail.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        views.thumbnail.setVisibility(View.GONE);
+        thumbBox.addView(views.thumbnail, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        LinearLayout details = new LinearLayout(DownloaderActivity.this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        holder.addView(details, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        views.title = new TextView(DownloaderActivity.this);
+        views.title.setTextSize(15f);
+        details.addView(views.title);
+
+        views.meta = new TextView(DownloaderActivity.this);
+        views.meta.setTextSize(12f);
+        views.meta.setTextColor(COLOR_MUTED);
+        details.addView(views.meta);
+
+        views.status = new TextView(DownloaderActivity.this);
+        views.status.setTextSize(13f);
+        details.addView(views.status);
+
+        views.progress = new ProgressBar(DownloaderActivity.this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        views.progress.setMax(100);
+        views.progress.setVisibility(View.GONE);
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
+        progressParams.setMargins(0, dp(4), 0, 0);
+        details.addView(views.progress, progressParams);
+
+        LinearLayout actions = new LinearLayout(DownloaderActivity.this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionsParams.setMargins(0, dp(6), 0, 0);
+        details.addView(actions, actionsParams);
+
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        views.retry = actionButton("Retry");
+        views.cancel = actionButton("Cancel");
+        views.delete = actionButton("Delete");
+        actions.addView(views.retry, buttonParams);
+        actions.addView(views.cancel, buttonParams);
+        actions.addView(views.delete, buttonParams);
+
+        holder.setTag(views);
+        return holder;
+    }
+
+    private Button actionButton(String text) {
+        Button button = new Button(DownloaderActivity.this);
+        button.setText(text);
+        button.setTextSize(12f);
+        return button;
+    }
+
+    private void bindRow(RowViews views, DownloaderRow row) {
+        views.title.setText(row.kindLabel());
+        views.meta.setText(metaLabel(row));
+        views.status.setText(row.statusLabel());
+        if (row.isVerified()) {
+            views.status.setTextColor(COLOR_OK);
+        } else if (row.state() == com.feurstagram.extension.downloader.core.DownloadState.FAILED) {
+            views.status.setTextColor(COLOR_BAD);
+        } else {
+            views.status.setTextColor(COLOR_MUTED);
         }
-        if (media.owner() != null && !media.owner().trim().isEmpty()) {
-            if (text.length() > 0) {
-                text.append(" · ");
+
+        int percent = row.progressPercent();
+        if (row.isActive()) {
+            views.progress.setVisibility(View.VISIBLE);
+            views.progress.setIndeterminate(percent < 0);
+            if (percent >= 0) {
+                views.progress.setProgress(percent);
             }
-            text.append('@').append(media.owner());
+        } else {
+            views.progress.setVisibility(View.GONE);
         }
-        if (media.hasAudio() && media.kind() == DownloadKind.VIDEO) {
-            if (text.length() > 0) {
-                text.append(" · ");
+
+        bindThumbnail(views, row);
+
+        views.retry.setVisibility(row.canRetry() ? View.VISIBLE : View.GONE);
+        views.cancel.setVisibility(row.canCancel() ? View.VISIBLE : View.GONE);
+        views.delete.setVisibility(row.canDelete() ? View.VISIBLE : View.GONE);
+
+        // The listeners are bound per row: the view is recycled, so a listener
+        // captured when the view was created would act on a different item.
+        views.retry.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                onRetry(row);
             }
-            text.append("has audio");
+        });
+        views.cancel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                onCancel(row);
+            }
+        });
+        views.delete.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                onDelete(row);
+            }
+        });
+    }
+
+    private String metaLabel(DownloaderRow row) {
+        StringBuilder text = new StringBuilder(row.kindLabel());
+        String owner = row.owner() == null ? "" : row.owner().trim();
+        if (!owner.isEmpty() && !"instagram".equalsIgnoreCase(owner)) {
+            text.append(" · @").append(owner);
         }
-        if (text.length() == 0) {
-            text.append("Seen in Instagram");
+        if (row.createdAtMs() > 0L) {
+            text.append(" · ").append(dateFormat.format(new Date(row.createdAtMs())));
         }
         return text.toString();
     }
 
-    /**
-     * Queues an observed media. A carousel is queued as its children: the
-     * engine refuses a container as it is.
-     */
-    private void onDownloadObserved(ObservedMedia media) {
-        if (!DownloaderSwitch.isEnabled(getApplicationContext())) {
-            act("Downloader is off. Turn it on in HMX Insta settings → Downloads.");
+    // --- Thumbnails ---------------------------------------------------------
+
+    private void bindThumbnail(RowViews views, DownloaderRow row) {
+        String path = row.savedPath();
+        views.placeholder.setText(row.kindLabel().toUpperCase(java.util.Locale.ROOT));
+        views.placeholder.setBackgroundColor(colorFor(row.kind()));
+        views.thumbnail.setVisibility(View.GONE);
+        views.thumbnail.setImageDrawable(null);
+        views.placeholder.setVisibility(View.VISIBLE);
+        if (path == null || path.trim().isEmpty()) {
             return;
         }
-        if (media.kind().isContainer()) {
-            int added = 0;
-            for (ObservedMedia child : media.children()) {
-                if (enqueueObserved(child)) {
-                    added++;
+        Bitmap cached = thumbnails.get(path);
+        if (cached != null) {
+            showThumbnail(views, cached);
+            return;
+        }
+        final String key = path;
+        final DownloadKind kind = row.kind();
+        views.thumbnail.setTag(key);
+        thumbs.execute(new Runnable() {
+            @Override
+            public void run() {
+                final Bitmap bitmap = readThumbnail(key, kind);
+                if (bitmap == null) {
+                    return;
                 }
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        thumbnails.put(key, bitmap);
+                        // The list refreshed while the thumbnail was loading:
+                        // only paint it if this row still shows that file.
+                        if (key.equals(views.thumbnail.getTag())) {
+                            showThumbnail(views, bitmap);
+                        }
+                    }
+                });
             }
-            act(added == 0 ? "Nothing to download" : "Added " + added + " items");
-            refresh();
-            return;
-        }
-        act(enqueueObserved(media) ? "Added to the queue" : "Cannot be downloaded");
-        refresh();
+        });
     }
 
-    private boolean enqueueObserved(ObservedMedia media) {
-        MediaItem item;
-        try {
-            item = media.toMediaItem();
-        } catch (IllegalArgumentException e) {
-            return false;
+    private void showThumbnail(RowViews views, Bitmap bitmap) {
+        views.thumbnail.setImageBitmap(bitmap);
+        views.thumbnail.setVisibility(View.VISIBLE);
+        views.placeholder.setVisibility(View.GONE);
+    }
+
+    private int colorFor(DownloadKind kind) {
+        if (kind == DownloadKind.VIDEO) {
+            return 0xFF4527A0;
         }
+        if (kind == DownloadKind.AUDIO) {
+            return 0xFF00695C;
+        }
+        if (kind == DownloadKind.COVER) {
+            return 0xFF37474F;
+        }
+        return 0xFF1565C0;
+    }
+
+    /** Reads a small bitmap for a published file, or {@code null}. */
+    private static Bitmap readThumbnail(String savedPath, DownloadKind kind) {
         try {
-            DownloadQueue.EnqueueResult result = downloader.enqueue(item);
-            return result.isAdded();
-        } catch (RuntimeException e) {
-            return false;
+            String path = savedPath.startsWith("/")
+                    ? savedPath
+                    : android.os.Environment.getExternalStorageDirectory()
+                            + "/" + savedPath;
+            File file = new File(path);
+            if (!file.isFile()) {
+                return null;
+            }
+            int size = 96;
+            if (kind == DownloadKind.VIDEO) {
+                return videoThumbnail(file, size);
+            }
+            Bitmap source = BitmapFactory.decodeFile(path);
+            if (source == null) {
+                return null;
+            }
+            Bitmap scaled = ThumbnailUtils.extractThumbnail(source, size, size);
+            if (scaled != source) {
+                source.recycle();
+            }
+            return scaled;
+        } catch (Throwable failure) {
+            // A thumbnail is cosmetic: a file that cannot be read simply keeps
+            // the type placeholder.
+            return null;
         }
     }
+
+    @SuppressWarnings("deprecation")
+    private static Bitmap videoThumbnail(File file, int size) {
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                return ThumbnailUtils.createVideoThumbnail(file, new Size(size, size), null);
+            }
+            return ThumbnailUtils.createVideoThumbnail(file.getAbsolutePath(),
+                    android.provider.MediaStore.Video.Thumbnails.MINI_KIND);
+        } catch (java.io.IOException e) {
+            return null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    // --- Actions ------------------------------------------------------------
 
     private void onRetry(DownloaderRow row) {
         if (!DownloaderSwitch.isEnabled(getApplicationContext())) {

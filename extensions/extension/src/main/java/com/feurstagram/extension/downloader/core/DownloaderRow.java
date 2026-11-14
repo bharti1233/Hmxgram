@@ -32,11 +32,13 @@ public final class DownloaderRow {
     private final long createdAtMs;
     private final int attempts;
     private final int maxAttempts;
+    private final String owner;
+    private final String sourceUrl;
 
     private DownloaderRow(String id, DownloadKind kind, DownloadState state,
             String title, String location, long bytesRead, long totalBytes,
             DownloadError error, String savedPath, long createdAtMs,
-            int attempts, int maxAttempts) {
+            int attempts, int maxAttempts, String owner, String sourceUrl) {
         this.id = id;
         this.kind = kind;
         this.state = state;
@@ -49,6 +51,8 @@ public final class DownloaderRow {
         this.createdAtMs = createdAtMs;
         this.attempts = attempts;
         this.maxAttempts = maxAttempts;
+        this.owner = owner == null ? "" : owner;
+        this.sourceUrl = sourceUrl == null ? "" : sourceUrl;
     }
 
     /**
@@ -84,7 +88,9 @@ public final class DownloaderRow {
                 savedPath,
                 task.createdAtMs(),
                 task.attempts(),
-                task.maxAttempts());
+                task.maxAttempts(),
+                item.owner(),
+                item.url());
     }
 
     private static String title(MediaItem item, long createdAtMs) {
@@ -159,6 +165,34 @@ public final class DownloaderRow {
 
     public int maxAttempts() {
         return maxAttempts;
+    }
+
+    /** The original Instagram username, or an empty string when unknown. */
+    public String owner() {
+        return owner;
+    }
+
+    /** The URL the item is downloaded from, or an empty string. */
+    public String sourceUrl() {
+        return sourceUrl;
+    }
+
+    /** A short, human name for the media type. */
+    public String kindLabel() {
+        switch (kind) {
+            case PHOTO:
+                return "Photo";
+            case VIDEO:
+                return "Video";
+            case AUDIO:
+                return "Audio";
+            case COVER:
+                return "Cover";
+            case CAROUSEL:
+                return "Carousel";
+            default:
+                return kind == null ? "Media" : kind.name();
+        }
     }
 
     /**

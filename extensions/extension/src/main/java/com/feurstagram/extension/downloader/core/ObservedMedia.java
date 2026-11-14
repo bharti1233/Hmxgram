@@ -74,6 +74,31 @@ public final class ObservedMedia {
         return id;
     }
 
+    /**
+     * A stable identity for duplicate detection and observation merging.
+     *
+     * <p>The media id wins. Without one, the URL without its query or fragment
+     * is the identity, because the query carries a CDN signature that changes
+     * between observations of the same file. A carousel combines its
+     * children's identities, so the same carousel cannot appear twice.
+     */
+    public String identity() {
+        if (id != null && !id.trim().isEmpty()) {
+            return "id:" + id.trim();
+        }
+        if (kind.isContainer()) {
+            StringBuilder key = new StringBuilder("carousel:");
+            for (int index = 0; index < children.size(); index++) {
+                if (index > 0) {
+                    key.append('|');
+                }
+                key.append(children.get(index).identity());
+            }
+            return key.toString();
+        }
+        return "url:" + MediaNaming.stripQuery(url);
+    }
+
     public DownloadKind kind() {
         return kind;
     }

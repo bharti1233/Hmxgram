@@ -14,8 +14,11 @@ import android.widget.Toast;
 
 import com.feurstagram.extension.Settings;
 import com.feurstagram.extension.downloader.core.DownloadQueue;
+import com.feurstagram.extension.downloader.core.ExplicitDownloadRequest;
 import com.feurstagram.extension.downloader.core.InContextAction;
 import com.feurstagram.extension.downloader.core.ObservedMedia;
+
+import java.util.List;
 
 /**
  * The confirmation sheet behind the in-context chip.
@@ -37,15 +40,21 @@ final class InContextDownloadSheet {
 
     static void show(Context context, ObservedMedia media, long ageMs,
             InContextAction.Surface surface) {
-        if (context == null || media == null) {
+        if (context == null) {
             return;
         }
-        if (!DownloaderSwitch.isEnabled(context)) {
+        final ExplicitDownloadRequest request = ExplicitDownloadRequest.evaluate(
+                media, ageMs, surface, DownloaderSwitch.isEnabled(context),
+                System.currentTimeMillis());
+        if (!request.isReady()) {
             Toast.makeText(context,
-                    "The HMX downloader is off. Turn it on in HMX Insta settings.",
+                    request.message() == null
+                            ? "HMX could not identify this media."
+                            : request.message(),
                     Toast.LENGTH_LONG).show();
             return;
         }
+        final List<ObservedMedia> targets = request.targets();
         try {
             final Dialog dialog = new Dialog(context);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -58,7 +67,7 @@ final class InContextDownloadSheet {
             Settings.titleLarge(title);
             card.addView(title);
 
-            final int count = InContextAction.targets(media).size();
+            final int count = targets.size();
 
             ScrollView bodyScroll = new ScrollView(context);
             bodyScroll.setVerticalScrollBarEnabled(false);
@@ -107,7 +116,7 @@ final class InContextDownloadSheet {
                 @Override
                 public void onClick(View view) {
                     dialog.dismiss();
-                    enqueue(view.getContext(), media);
+                    enqueue(view.getContext(), targets);
                 }
             });
             buttons.addView(download, new LinearLayout.LayoutParams(
@@ -124,8 +133,8 @@ final class InContextDownloadSheet {
         }
     }
 
-    /** Queues the confirmed items through the existing engine. */
-    private static void enqueue(Context context, ObservedMedia media) {
+    /** Queues exactly the confirmed items through the existing engine. */
+    private static void enqueue(Context context, List<ObservedMedia> targets) {
         if (!DownloaderSwitch.isEnabled(context)) {
             Toast.makeText(context,
                     "The HMX downloader is off. Turn it on in HMX Insta settings.",
@@ -137,7 +146,7 @@ final class InContextDownloadSheet {
         int failed = 0;
         try {
             HmxDownloader downloader = HmxDownloader.get(context.getApplicationContext());
-            for (ObservedMedia target : InContextAction.targets(media)) {
+            for (ObservedMedia target : targets) {
                 try {
                     DownloadQueue.EnqueueResult result = downloader.enqueue(target.toMediaItem());
                     if (result.isAdded()) {
@@ -152,7 +161,7 @@ final class InContextDownloadSheet {
                 }
             }
         } catch (RuntimeException e) {
-            failed = Math.max(1, InContextAction.targets(media).size());
+            failed = Math.max(1, targets.size());
         }
         Toast.makeText(context,
                 InContextAction.resultMessage(added, duplicates, failed),

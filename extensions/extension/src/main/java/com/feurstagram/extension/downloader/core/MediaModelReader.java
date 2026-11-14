@@ -50,6 +50,11 @@ public final class MediaModelReader {
     /** How many candidates are kept; a real media exposes far fewer. */
     private static final int MAX_CANDIDATES = 64;
 
+    /** The named id accessors, most specific first. */
+    private static final String[] ID_ACCESSORS = {
+            "getId", "getPk", "getMediaId", "id", "pk", "mediaId"
+    };
+
     private MediaModelReader() {
     }
 
@@ -286,7 +291,30 @@ public final class MediaModelReader {
                 // Try the next accessor.
             }
         }
-        return 0;
+        // Release 454's video version has no width getter: its dimensions are
+        // public int fields. The largest of them is the rendition's size, so
+        // the highest rendition wins instead of whichever one Instagram stored
+        // first. Only public primitive fields are read; nothing is guessed.
+        int widest = 0;
+        for (Field field : source.getClass().getFields()) {
+            Class<?> type = field.getType();
+            if (type != int.class && type != Integer.class
+                    && type != long.class && type != Long.class) {
+                continue;
+            }
+            try {
+                Object value = field.get(source);
+                long number = value instanceof Number ? ((Number) value).longValue() : 0L;
+                if (number > widest && number <= Integer.MAX_VALUE) {
+                    widest = (int) number;
+                }
+            } catch (Exception e) {
+                // Try the next field.
+            } catch (LinkageError e) {
+                // Try the next field.
+            }
+        }
+        return widest;
     }
 
     /** Whether the type is the additional candidates holder of an image info. */
@@ -432,34 +460,62 @@ public final class MediaModelReader {
      * that are not the id, so a non-numeric value is refused: taking the first
      * string would key every post under the same unrelated value and break
      * the downloader's duplicate detection.
+     *
+     * <p>The named accessors come first. Release 454 exposes the media id as
+     * {@code getId()}, which reads the model's {@code id}/{@code pk} field.
+     * Only when none of them is readable does the reader fall back to the
+     * first numeric string, and that fallback is still validated.
      */
     private static String idOf(Object model) {
-        for (Method method : model.getClass().getMethods()) {
-            if (method.getParameterTypes().length != 0 || isObjectMethod(method)) {
-                continue;
-            }
-            Class<?> returned = method.getReturnType();
-            if (returned != String.class && returned != Long.class
-                    && returned != Integer.class && returned != long.class
-                    && returned != int.class) {
-                continue;
-            }
+        for (String name : ID_ACCESSORS) {
             try {
-                Object value = method.invoke(model);
-                if (value == null) {
-                    continue;
+                Method method = model.getClass().getMethod(name);
+                String value = identifierFrom(method, model);
+                if (value != null) {
+                    return value;
                 }
-                String text = String.valueOf(value).trim();
-                if (isNumericIdentifier(text)) {
-                    return text;
-                }
-            } catch (Exception e) {
-                // Try the next accessor.
+            } catch (NoSuchMethodException e) {
+                // Try the next name.
+            } catch (SecurityException e) {
+                // Try the next name.
+            } catch (RuntimeException e) {
+                // Try the next name.
             } catch (LinkageError e) {
-                // Try the next accessor.
+                // Try the next name.
+            }
+        }
+        for (Method method : model.getClass().getMethods()) {
+            String value = identifierFrom(method, model);
+            if (value != null) {
+                return value;
             }
         }
         return null;
+    }
+
+    /** The numeric identifier a method returns, or {@code null}. */
+    private static String identifierFrom(Method method, Object model) {
+        if (method.getParameterTypes().length != 0 || isObjectMethod(method)) {
+            return null;
+        }
+        Class<?> returned = method.getReturnType();
+        if (returned != String.class && returned != Long.class
+                && returned != Integer.class && returned != long.class
+                && returned != int.class) {
+            return null;
+        }
+        try {
+            Object value = method.invoke(model);
+            if (value == null) {
+                return null;
+            }
+            String text = String.valueOf(value).trim();
+            return isNumericIdentifier(text) ? text : null;
+        } catch (Exception e) {
+            return null;
+        } catch (LinkageError e) {
+            return null;
+        }
     }
 
     private static boolean isNumericIdentifier(String text) {

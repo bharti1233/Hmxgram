@@ -53,7 +53,58 @@ public final class InContextAction {
         if (ageMs < 0L || ageMs > MAX_AGE_MS) {
             return false;
         }
-        return !targets(media).isEmpty();
+        return !targets(media, surface).isEmpty();
+    }
+
+    /**
+     * The items that could be queued for this observation on this surface.
+     *
+     * <p>Reels only offer a playable video. A still image observed on a Reel
+     * is its cover, not the Reel itself, and saving it would silently download
+     * the wrong content; such an observation is reported as unavailable
+     * instead.
+     */
+    public static List<ObservedMedia> targets(ObservedMedia media, Surface surface) {
+        List<ObservedMedia> all = targets(media);
+        if (surface != Surface.REELS || all.isEmpty()) {
+            return all;
+        }
+        List<ObservedMedia> videos = new ArrayList<ObservedMedia>();
+        for (ObservedMedia target : all) {
+            if (target.kind() == DownloadKind.VIDEO) {
+                videos.add(target);
+            }
+        }
+        return videos.isEmpty()
+                ? Collections.<ObservedMedia>emptyList()
+                : Collections.unmodifiableList(videos);
+    }
+
+    /**
+     * Why the action cannot be offered, or {@code null} when it can.
+     *
+     * <p>The chip shows this text instead of downloading something it could
+     * not identify.
+     */
+    public static String unavailableReason(ObservedMedia media, long ageMs,
+            Surface surface) {
+        if (surface == null) {
+            return "HMX could not recognise this Instagram screen.";
+        }
+        if (media == null) {
+            return "HMX has not identified the media on this screen yet.";
+        }
+        if (ageMs < 0L || ageMs > MAX_AGE_MS) {
+            return "The media on screen changed. Open the post again to refresh HMX.";
+        }
+        if (surface == Surface.REELS && media.kind() != DownloadKind.VIDEO) {
+            return "This looks like a Reel cover, not a playable video."
+                    + " HMX will not download the cover.";
+        }
+        if (targets(media, surface).isEmpty()) {
+            return "HMX could not resolve a playable URL for this media.";
+        }
+        return null;
     }
 
     /**
@@ -132,6 +183,10 @@ public final class InContextAction {
         if (surface == Surface.STORIES) {
             text.append(" A story can only be saved while Instagram still has it loaded;"
                     + " private or expired stories cannot be downloaded.");
+        }
+        if (surface == Surface.REELS) {
+            text.append(" Only the playable video is saved; the cover image is never"
+                    + " downloaded.");
         }
         text.append(" HMX saves the media Instagram parsed for this screen,"
                 + " never a guess from the view layout.");

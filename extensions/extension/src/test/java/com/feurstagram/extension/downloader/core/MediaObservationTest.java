@@ -64,10 +64,10 @@ public final class MediaObservationTest {
                 observationToItem();
             }
         });
-        failures += group("registry bounds", new Runnable() {
+        failures += group("observation session", new Runnable() {
             @Override
             public void run() {
-                registryBounds();
+                observationSession();
             }
         });
         failures += group("non-media list fallback", new Runnable() {
@@ -135,9 +135,17 @@ public final class MediaObservationTest {
     /** One video version, like VideoUrlImpl: a public string field, no getter. */
     public static final class VideoUrl {
         public final String A06;
+        public final int A00;
+        public final int A01;
 
         VideoUrl(String url) {
+            this(url, 0, 0);
+        }
+
+        VideoUrl(String url, int width, int height) {
             this.A06 = url;
+            this.A00 = width;
+            this.A01 = height;
         }
     }
 
@@ -172,6 +180,11 @@ public final class MediaObservationTest {
             return children;
         }
 
+        /** The real 454 accessor: the media id is read through {@code getId}. */
+        public String getId() {
+            return pk;
+        }
+
         public String zzD() {
             return pk;
         }
@@ -199,6 +212,17 @@ public final class MediaObservationTest {
         check("3123456789".equals(media.id()), "the numeric id is read");
         check(!media.hasAudio(), "a photo has no audio");
         check(media.isDownloadable(), "a photo with a URL is downloadable");
+
+        // The real 454 model exposes getId(); it must win over another numeric
+        // string accessor, which would otherwise key the media wrongly.
+        IdPriorityMedia priority = new IdPriorityMedia(
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/p.jpg", 1080))),
+                "1234567890", "9999999999");
+        ObservedMedia priorityMedia = MediaModelReader.read(priority);
+        check(priorityMedia != null, "a model with a named id is read");
+        check("1234567890".equals(priorityMedia.id()),
+                "the named id wins over another numeric string");
     }
 
     private static void videoModel() {
@@ -206,15 +230,16 @@ public final class MediaObservationTest {
                 new ImageInfo(Arrays.asList(
                         new ImageCandidate("https://cdn.example/cover.jpg", 640))),
                 Arrays.asList(
-                        new VideoUrl("https://cdn.example/high.mp4"),
-                        new VideoUrl("https://cdn.example/low.mp4")),
+                        new VideoUrl("https://cdn.example/low.mp4", 640, 360),
+                        new VideoUrl("https://cdn.example/high.mp4", 1080, 1920),
+                        new VideoUrl("https://cdn.example/medium.mp4", 720, 1280)),
                 null, "987654321", true, false);
         // The hook hands the versions with the model: the paired read.
         ObservedMedia paired = MediaModelReader.read(model, model.zzB());
         check(paired != null, "a paired video model is read");
         check(DownloadKind.VIDEO == paired.kind(), "the kind is a video");
         check("https://cdn.example/high.mp4".equals(paired.url()),
-                "the video URL wins over the cover image");
+                "the highest playable rendition wins, not the first one");
         check("video/mp4".equals(paired.mimeType()), "the mime type is video");
         check(paired.hasAudio(), "the audio flag is read");
         check(paired.id().equals("987654321"), "the video keeps its media id");
@@ -225,13 +250,13 @@ public final class MediaObservationTest {
         check(found != null, "the video model is read on its own");
         check(DownloadKind.VIDEO == found.kind(), "the own video list is found");
         check("https://cdn.example/high.mp4".equals(found.url()),
-                "the own video list is used");
+                "the own video list uses the highest rendition too");
 
         // An unrelated true boolean is not audio.
         FakeMedia loud = new FakeMedia(
                 new ImageInfo(Arrays.asList(
                         new ImageCandidate("https://cdn.example/cover.jpg", 640))),
-                Arrays.asList(new VideoUrl("https://cdn.example/high.mp4")),
+                Arrays.asList(new VideoUrl("https://cdn.example/high.mp4", 1080, 1920)),
                 null, "987654321", false, true);
         ObservedMedia noAudio = MediaModelReader.read(loud);
         check(noAudio != null && !noAudio.hasAudio(),
@@ -333,43 +358,83 @@ public final class MediaObservationTest {
                 "the duplicate key is the stable media id");
     }
 
-    private static void registryBounds() {
-        MediaRegistry registry = new MediaRegistry(3);
-        for (int index = 1; index <= 5; index++) {
-            registry.observe(ObservedMedia.single("id-" + index, DownloadKind.PHOTO,
-                    "https://cdn.example/" + index + ".jpg", "image/jpeg", "alice",
-                    100, 100, 0L, 0L, false));
+    private static void observationSession() {
+        ObservationSession session = new ObservationSession();
+        long now = 1000L;
+        ObservedMedia first = ObservedMedia.single("r1", DownloadKind.VIDEO,
+                "https://cdn.example/r1.mp4?token=a", "video/mp4", "alice",
+                1080, 1920, 0L, 0L, true);
+        check(session.observe(first, now) == ObservationSession.Outcome.ACCEPTED,
+                "the first observation becomes current");
+        check(session.latest() == first, "the latest observation is kept");
+        check(session.latestAgeMs(now + 500L) == 500L, "the age is measured");
+        check(session.acceptedCount() == 1L, "one media was accepted");
+
+        // The same Reel observed again: segments, cover and the model itself
+        // are one media, never several entries.
+        ObservedMedia again = ObservedMedia.single("r1", DownloadKind.VIDEO,
+                "https://cdn.example/r1.mp4?token=b", "video/mp4", "alice",
+                1080, 1920, 0L, 0L, true);
+        check(session.observe(again, now + 1000L)
+                        == ObservationSession.Outcome.REFRESHED,
+                "a repeated observation refreshes instead of duplicating");
+        check(session.latest() == again, "the refreshed snapshot is current");
+        check(session.acceptedCount() == 1L,
+                "a repeated observation does not increase the accepted count");
+        check(session.refreshCount() == 1L, "the refresh is counted");
+
+        ObservedMedia other = ObservedMedia.single("r2", DownloadKind.VIDEO,
+                "https://cdn.example/r2.mp4", "video/mp4", "bob",
+                720, 1280, 0L, 0L, true);
+        check(session.observe(other, now + 2000L)
+                        == ObservationSession.Outcome.ACCEPTED,
+                "a new media becomes current");
+        check(session.acceptedCount() == 2L, "the new media is counted");
+
+        check(session.observe(null, now + 3000L)
+                        == ObservationSession.Outcome.IGNORED,
+                "a null observation is ignored");
+        check(session.latest() == other, "a null observation changes nothing");
+
+        // Identity without an id is the URL without its query: a changing CDN
+        // signature must not turn one file into many.
+        ObservedMedia signedA = ObservedMedia.single(null, DownloadKind.PHOTO,
+                "https://cdn.example/a.jpg?sig=1", "image/jpeg", "alice",
+                100, 100, 0L, 0L, false);
+        ObservedMedia signedB = ObservedMedia.single(null, DownloadKind.PHOTO,
+                "https://cdn.example/a.jpg?sig=2", "image/jpeg", "alice",
+                100, 100, 0L, 0L, false);
+        check(signedA.identity().equals(signedB.identity()),
+                "the query string is not part of the media identity");
+
+        session.clear();
+        check(!session.hasObservation(), "the session can be cleared");
+        check(session.latestAgeMs(now) == Long.MAX_VALUE,
+                "a cleared session has no age");
+    }
+
+    /** A photo model that exposes the named id and another numeric string. */
+    public static final class IdPriorityMedia {
+        private final ImageInfo image;
+        private final String id;
+        private final String decoy;
+
+        IdPriorityMedia(ImageInfo image, String id, String decoy) {
+            this.image = image;
+            this.id = id;
+            this.decoy = decoy;
         }
-        check(registry.size() == 3, "the registry stays within its capacity");
-        List<ObservedMedia> list = registry.list();
-        check(list.size() == 3, "the list has the capacity");
-        check("id-5".equals(list.get(0).id()), "the newest observation is first");
-        check("id-3".equals(list.get(2).id()), "the oldest kept observation is last");
-        check(registry.find("id-1") == null, "an evicted observation is gone");
-        check(registry.find("id-5") != null, "the newest observation is found");
 
-        // The same media again moves to the front instead of being duplicated.
-        registry.observe(ObservedMedia.single("id-3", DownloadKind.PHOTO,
-                "https://cdn.example/3.jpg", "image/jpeg", "alice", 100, 100, 0L, 0L,
-                false));
-        check(registry.size() == 3, "a repeated observation does not grow the registry");
-        check("id-3".equals(registry.list().get(0).id()),
-                "the repeated observation is the newest one");
-
-        registry.clear();
-        check(registry.size() == 0, "the registry can be cleared");
-
-        try {
-            new MediaRegistry(0);
-            throw new AssertionError("a capacity of zero must be refused");
-        } catch (IllegalArgumentException expected) {
-            // Expected.
+        public ImageInfo zz1() {
+            return image;
         }
-        try {
-            registry.observe(null);
-            throw new AssertionError("a null observation must be refused");
-        } catch (IllegalArgumentException expected) {
-            // Expected.
+
+        public String getId() {
+            return id;
+        }
+
+        public String zzZ() {
+            return decoy;
         }
     }
 

@@ -19,8 +19,10 @@ import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.feurstagram.extension.Settings;
+import com.feurstagram.extension.downloader.core.ExplicitDownloadRequest;
 import com.feurstagram.extension.downloader.core.InContextAction;
 import com.feurstagram.extension.downloader.core.ObservedMedia;
 import com.feurstagram.extension.downloader.core.OverlayLifecyclePolicy;
@@ -384,6 +386,7 @@ public final class InContextDownloadOverlay {
 
         private boolean dragging;
         private boolean released;
+        private boolean offerable;
         private float downRawX;
         private float downRawY;
 
@@ -453,21 +456,52 @@ public final class InContextDownloadOverlay {
             // within one tick, without a restart and without touching history.
             boolean allowed = DownloaderSwitch.isEnabled(getContext());
             InContextAction.Surface surface = surface();
+            if (!allowed || surface == null) {
+                offerable = false;
+                setVisibility(GONE);
+                return;
+            }
             ObservedMedia media = MediaObserver.latest();
             long ageMs = MediaObserver.latestAgeMs();
-            setVisibility(allowed && InContextAction.canOffer(media, ageMs, surface)
-                    ? VISIBLE : GONE);
+            boolean canOffer = InContextAction.canOffer(media, ageMs, surface);
+            // A fresh observation that cannot be offered is shown as
+            // unavailable instead of silently disappearing: the user learns
+            // that HMX saw the media but will not guess a URL for it.
+            boolean unresolved = media != null && ageMs >= 0L
+                    && ageMs <= InContextAction.MAX_AGE_MS;
+            if (!canOffer && !unresolved) {
+                offerable = false;
+                setVisibility(GONE);
+                return;
+            }
+            offerable = canOffer;
+            setText(canOffer ? "HMX save" : "HMX unavailable");
+            setTextColor(canOffer ? 0xFFFFFFFF : 0xFFCCCCCC);
+            setAlpha(canOffer ? 0.94f : 0.72f);
+            setContentDescription(canOffer
+                    ? "HMX Insta: download the media on screen"
+                    : "HMX Insta: this media cannot be downloaded");
+            setVisibility(VISIBLE);
         }
 
         private void openSheet() {
             if (!DownloaderSwitch.isEnabled(getContext())) {
+                Toast.makeText(getContext(),
+                        "The HMX downloader is off. Turn it on in HMX Insta settings.",
+                        Toast.LENGTH_LONG).show();
                 refresh();
                 return;
             }
             ObservedMedia media = MediaObserver.latest();
             long ageMs = MediaObserver.latestAgeMs();
             InContextAction.Surface surface = surface();
-            if (!InContextAction.canOffer(media, ageMs, surface)) {
+            ExplicitDownloadRequest request = ExplicitDownloadRequest.evaluate(
+                    media, ageMs, surface, true, System.currentTimeMillis());
+            if (!request.isReady()) {
+                String message = request.message();
+                Toast.makeText(getContext(),
+                        message == null ? "HMX could not identify this media." : message,
+                        Toast.LENGTH_LONG).show();
                 refresh();
                 return;
             }

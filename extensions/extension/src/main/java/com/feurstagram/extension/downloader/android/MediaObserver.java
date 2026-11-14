@@ -5,24 +5,23 @@ import android.os.Looper;
 import android.util.Log;
 
 import com.feurstagram.extension.downloader.core.MediaModelReader;
-import com.feurstagram.extension.downloader.core.MediaRegistry;
+import com.feurstagram.extension.downloader.core.ObservationSession;
 import com.feurstagram.extension.downloader.core.ObservedMedia;
 
 import java.util.ArrayDeque;
-import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Watches the media the user browses and records what they looked at.
+ * Watches the media the user browses and remembers only what is on screen.
  *
- * <p>This is the read-only observation the downloader milestone plan calls
- * Tier 2: the Instagram hook hands over the model it was already given and
- * this class reads it. Nothing is modified, no view is touched, no view
- * hierarchy is scanned and no request is intercepted.
+ * <p>This class is strictly passive. It reads the model Instagram already
+ * parsed and hands the result to an {@link ObservationSession}; it never
+ * enqueues, never downloads and never asks the download engine for anything.
+ * Opening, scrolling, autoplaying, pausing or replaying a Reel can therefore
+ * produce no download job — only an explicit tap on the HMX chip can.
  *
  * <p>The reading happens away from the main thread. The hook only stores the
- * model reference, exactly as the plan requires, so a long feed cannot slow
- * the UI down.
+ * model reference, so a long feed cannot slow the UI down.
  *
  * <p>Every failure is swallowed: a problem inside the observer must never
  * reach Instagram's code.
@@ -34,7 +33,7 @@ public final class MediaObserver {
     /** How many pending models are kept before the oldest is dropped. */
     private static final int MAX_PENDING = 32;
 
-    private static final MediaRegistry REGISTRY = new MediaRegistry();
+    private static final ObservationSession SESSION = new ObservationSession();
     private static final ArrayDeque<Observation> PENDING =
             new ArrayDeque<Observation>();
     private static final Object LOCK = new Object();
@@ -53,25 +52,12 @@ public final class MediaObserver {
     private static volatile boolean enabled = true;
     private static boolean workerRunning;
 
-    private static volatile ObservedMedia latest;
-    private static volatile long latestAtMs;
-
     private MediaObserver() {
     }
 
     /** Told on the main thread whenever a media observation was accepted. */
     public interface Listener {
         void onMediaObserved(ObservedMedia media);
-    }
-
-    /** The observations, most recent first. */
-    public static List<ObservedMedia> observed() {
-        return REGISTRY.list();
-    }
-
-    /** The observation with this id, or {@code null}. */
-    public static ObservedMedia find(String id) {
-        return REGISTRY.find(id);
     }
 
     /**
@@ -82,15 +68,12 @@ public final class MediaObserver {
      * confirm instead of pretending the action belongs to one post.
      */
     public static ObservedMedia latest() {
-        return latest;
+        return SESSION.latest();
     }
 
     /** How long ago the latest observation was accepted, in milliseconds. */
     public static long latestAgeMs() {
-        if (latest == null) {
-            return Long.MAX_VALUE;
-        }
-        return Math.max(0L, System.currentTimeMillis() - latestAtMs);
+        return SESSION.latestAgeMs(System.currentTimeMillis());
     }
 
     /** Registers an in-context listener; it is called on the main thread. */
@@ -109,9 +92,7 @@ public final class MediaObserver {
 
     /** Forgets every observation. */
     public static void clear() {
-        REGISTRY.clear();
-        latest = null;
-        latestAtMs = 0L;
+        SESSION.clear();
     }
 
     /** Turns the observation on or off. */
@@ -285,9 +266,11 @@ public final class MediaObserver {
 
     /** Records an accepted observation and tells the in-context listeners. */
     private static void accept(ObservedMedia media) {
-        REGISTRY.observe(media);
-        latest = media;
-        latestAtMs = System.currentTimeMillis();
+        ObservationSession.Outcome outcome =
+                SESSION.observe(media, System.currentTimeMillis());
+        if (outcome == ObservationSession.Outcome.IGNORED) {
+            return;
+        }
         if (LISTENERS.isEmpty()) {
             return;
         }

@@ -80,7 +80,7 @@ public final class InContextActionTest {
         check(InContextAction.canOffer(photo, 0L, InContextAction.Surface.FEED),
                 "a fresh photo is offered");
         check(InContextAction.canOffer(photo, InContextAction.MAX_AGE_MS,
-                InContextAction.Surface.REELS), "the age boundary is inclusive");
+                InContextAction.Surface.STORIES), "the age boundary is inclusive");
         check(!InContextAction.canOffer(photo, InContextAction.MAX_AGE_MS + 1L,
                 InContextAction.Surface.FEED), "a stale observation is not offered");
         check(!InContextAction.canOffer(photo, -1L, InContextAction.Surface.FEED),
@@ -91,6 +91,20 @@ public final class InContextActionTest {
                 "an unrecognised surface is not offered");
         check(InContextAction.canOffer(photo, 0L, InContextAction.Surface.STORIES),
                 "a supported story media is offered");
+
+        // A Reel is a video. A still image observed on a Reel is its cover and
+        // must never be offered as the Reel itself.
+        ObservedMedia reel = video("r1", "https://cdn.example/r1.mp4", true);
+        check(InContextAction.canOffer(reel, 0L, InContextAction.Surface.REELS),
+                "a Reel video is offered on the Reels surface");
+        check(!InContextAction.canOffer(photo, 0L, InContextAction.Surface.REELS),
+                "a Reel cover is not offered");
+        check(InContextAction.unavailableReason(photo, 0L,
+                InContextAction.Surface.REELS).contains("cover"),
+                "the unavailable state explains that the cover is not a Reel");
+        check(InContextAction.unavailableReason(reel, 0L,
+                InContextAction.Surface.REELS) == null,
+                "a playable Reel has no unavailable reason");
     }
 
     private static void carouselTargets() {
@@ -133,6 +147,15 @@ public final class InContextActionTest {
                 "only http(s) URLs are handed to the engine");
         check(InContextAction.targets(null).isEmpty(),
                 "a null observation has no target");
+
+        // The surface decides what may be saved. Reels only ever save video.
+        ObservedMedia reel = video("r2", "https://cdn.example/r2.mp4", true);
+        check(InContextAction.targets(reel, InContextAction.Surface.REELS).size() == 1,
+                "a Reel video is a target on Reels");
+        check(InContextAction.targets(photo, InContextAction.Surface.REELS).isEmpty(),
+                "a Reel cover is never a target");
+        check(InContextAction.targets(photo, InContextAction.Surface.FEED).size() == 1,
+                "the same photo is a target on the feed");
     }
 
     private static void titlesAndDetails() {
