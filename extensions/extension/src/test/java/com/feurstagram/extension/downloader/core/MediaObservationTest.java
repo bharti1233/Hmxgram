@@ -5,13 +5,15 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * M4 tests: reading an Instagram-shaped media model with the type-based
+ * M9 tests: reading the Instagram 454 media shape with the type-based
  * reader, and keeping the observations in a bounded registry.
  *
- * <p>The fake models below have the same shape as the real ones: an image
- * info object, a video info object, a list of children and a user. Their
- * accessor names are deliberately meaningless, because the reader must never
- * depend on a name.
+ * <p>The fake models below have the real 454 shape, not the old one: an
+ * {@code ImageInfo} exposes <em>lists of candidates</em> and no string URL at
+ * all, a video has no video info object but a list of {@code VideoUrl}
+ * objects whose link is a public field, and a carousel child is itself a
+ * media model. The accessor names are deliberately meaningless, because the
+ * reader must never depend on a name.
  */
 public final class MediaObservationTest {
 
@@ -23,7 +25,7 @@ public final class MediaObservationTest {
         System.exit(run() == 0 ? 0 : 1);
     }
 
-    /** Runs every M4 test group and returns the number of failures. */
+    /** Runs every M9 test group and returns the number of failures. */
     public static int run() {
         int failures = 0;
         failures += group("photo model", new Runnable() {
@@ -42,6 +44,12 @@ public final class MediaObservationTest {
             @Override
             public void run() {
                 carouselModel();
+            }
+        });
+        failures += group("video list is not a carousel", new Runnable() {
+            @Override
+            public void run() {
+                videoListIsNotCarousel();
             }
         });
         failures += group("model rejection", new Runnable() {
@@ -69,7 +77,7 @@ public final class MediaObservationTest {
             }
         });
         if (failures == 0) {
-            System.out.println("PASS 7 downloader-observation tests");
+            System.out.println("PASS 8 downloader-observation tests");
         }
         return failures;
     }
@@ -85,112 +93,163 @@ public final class MediaObservationTest {
         }
     }
 
-    /** The image info object of the real model. */
-    public static final class ImageInfo {
+    /** One image candidate, like ExtendedImageUrl: a getter and a width. */
+    public static final class ImageCandidate {
         private final String url;
         private final int width;
 
-        ImageInfo(String url, int width) {
+        ImageCandidate(String url, int width) {
             this.url = url;
             this.width = width;
         }
 
-        public String url() {
+        public String getUrl() {
             return url;
         }
 
-        public int width() {
+        public int getWidth() {
             return width;
         }
     }
 
-    /** The video info object of the real model. */
-    public static final class VideoInfo {
-        private final String url;
+    /**
+     * The image info object of the real 454 model: lists of candidates and no
+     * string URL getter.
+     */
+    public static final class ImageInfo {
+        private final List<ImageCandidate> candidates;
 
-        VideoInfo(String url) {
-            this.url = url;
+        ImageInfo(List<ImageCandidate> candidates) {
+            this.candidates = candidates;
         }
 
-        public String url() {
-            return url;
+        public List<ImageCandidate> zz1() {
+            return candidates;
+        }
+
+        public double zz2() {
+            return 1.0d;
         }
     }
 
-    /** A fake media model with the shape of Instagram's. */
+    /** One video version, like VideoUrlImpl: a public string field, no getter. */
+    public static final class VideoUrl {
+        public final String A06;
+
+        VideoUrl(String url) {
+            this.A06 = url;
+        }
+    }
+
+    /** A fake media model with the 454 shape. */
     public static final class FakeMedia {
         private final ImageInfo image;
-        private final VideoInfo video;
+        private final List<VideoUrl> videos;
         private final List<FakeMedia> children;
         private final String pk;
         private final boolean audio;
+        private final boolean sponsored;
 
-        FakeMedia(ImageInfo image, VideoInfo video, List<FakeMedia> children,
-                String pk, boolean audio) {
+        FakeMedia(ImageInfo image, List<VideoUrl> videos, List<FakeMedia> children,
+                String pk, boolean audio, boolean sponsored) {
             this.image = image;
-            this.video = video;
+            this.videos = videos;
             this.children = children;
             this.pk = pk;
             this.audio = audio;
+            this.sponsored = sponsored;
         }
 
-        public ImageInfo zz1() {
+        public ImageInfo zzA() {
             return image;
         }
 
-        public VideoInfo zz2() {
-            return video;
+        public List<VideoUrl> zzB() {
+            return videos;
         }
 
-        public List<FakeMedia> zz3() {
+        public List<FakeMedia> zzC() {
             return children;
         }
 
-        public String zz4() {
+        public String zzD() {
             return pk;
         }
 
-        public boolean zz5() {
+        public boolean hasAudio() {
             return audio;
+        }
+
+        public boolean zzSponsored() {
+            return sponsored;
         }
     }
 
     private static void photoModel() {
         FakeMedia model = new FakeMedia(
-                new ImageInfo("https://cdn.example/large.jpg", 1080), null,
-                null, "3123456789", false);
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/small.jpg", 720),
+                        new ImageCandidate("https://cdn.example/large.jpg", 1080))),
+                null, null, "3123456789", false, false);
         ObservedMedia media = MediaModelReader.read(model);
         check(media != null, "a photo model is read");
         check(DownloadKind.PHOTO == media.kind(), "the kind is a photo");
         check("https://cdn.example/large.jpg".equals(media.url()),
-                "the image URL is read");
-        check("3123456789".equals(media.id()), "the id is read");
+                "the widest candidate is read");
+        check("3123456789".equals(media.id()), "the numeric id is read");
         check(!media.hasAudio(), "a photo has no audio");
         check(media.isDownloadable(), "a photo with a URL is downloadable");
     }
 
     private static void videoModel() {
         FakeMedia model = new FakeMedia(
-                new ImageInfo("https://cdn.example/cover.jpg", 640),
-                new VideoInfo("https://cdn.example/high.mp4"), null, "987654321",
-                true);
-        ObservedMedia media = MediaModelReader.read(model);
-        check(media != null, "a video model is read");
-        check(DownloadKind.VIDEO == media.kind(), "the kind is a video");
-        check("https://cdn.example/high.mp4".equals(media.url()),
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/cover.jpg", 640))),
+                Arrays.asList(
+                        new VideoUrl("https://cdn.example/high.mp4"),
+                        new VideoUrl("https://cdn.example/low.mp4")),
+                null, "987654321", true, false);
+        // The hook hands the versions with the model: the paired read.
+        ObservedMedia paired = MediaModelReader.read(model, model.zzB());
+        check(paired != null, "a paired video model is read");
+        check(DownloadKind.VIDEO == paired.kind(), "the kind is a video");
+        check("https://cdn.example/high.mp4".equals(paired.url()),
                 "the video URL wins over the cover image");
-        check("video/mp4".equals(media.mimeType()), "the mime type is video");
-        check(media.hasAudio(), "the audio flag is read");
+        check("video/mp4".equals(paired.mimeType()), "the mime type is video");
+        check(paired.hasAudio(), "the audio flag is read");
+        check(paired.id().equals("987654321"), "the video keeps its media id");
+
+        // Without the handed list, the reader still finds the model's own
+        // video versions; this is how a carousel child is read.
+        ObservedMedia found = MediaModelReader.read(model);
+        check(found != null, "the video model is read on its own");
+        check(DownloadKind.VIDEO == found.kind(), "the own video list is found");
+        check("https://cdn.example/high.mp4".equals(found.url()),
+                "the own video list is used");
+
+        // An unrelated true boolean is not audio.
+        FakeMedia loud = new FakeMedia(
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/cover.jpg", 640))),
+                Arrays.asList(new VideoUrl("https://cdn.example/high.mp4")),
+                null, "987654321", false, true);
+        ObservedMedia noAudio = MediaModelReader.read(loud);
+        check(noAudio != null && !noAudio.hasAudio(),
+                "an unrelated boolean does not claim audio");
     }
 
     private static void carouselModel() {
         FakeMedia first = new FakeMedia(
-                new ImageInfo("https://cdn.example/a.jpg", 1080), null, null, "1",
-                false);
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/a.jpg", 1080))),
+                null, null, "1234567890123", false, false);
         FakeMedia second = new FakeMedia(
-                null, new VideoInfo("https://cdn.example/b.mp4"), null, "2", false);
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/b-cover.jpg", 1080))),
+                Arrays.asList(new VideoUrl("https://cdn.example/b.mp4")),
+                null, "1234567890124", false, false);
         FakeMedia carousel = new FakeMedia(null, null,
-                Arrays.asList(first, second), "55555", false);
+                Arrays.asList(first, second), "1234567890125", false, false);
         ObservedMedia media = MediaModelReader.read(carousel);
         check(media != null, "a carousel model is read");
         check(DownloadKind.CAROUSEL == media.kind(), "the kind is a carousel");
@@ -198,9 +257,34 @@ public final class MediaObservationTest {
         List<ObservedMedia> children = media.children();
         check(children.size() == 2, "both children are read");
         check(DownloadKind.PHOTO == children.get(0).kind(), "the first child is a photo");
-        check(DownloadKind.VIDEO == children.get(1).kind(), "the second child is a video");
+        check(DownloadKind.VIDEO == children.get(1).kind(),
+                "the video child is read as a video");
         check("https://cdn.example/b.mp4".equals(children.get(1).url()),
-                "the child's URL is read");
+                "the child's video URL is read");
+    }
+
+    /**
+     * The regression that hid the chip on every surface: the old reader saw
+     * the image candidates (or the video versions) as a carousel and turned a
+     * plain photo or video into a container, so nothing was downloadable.
+     */
+    private static void videoListIsNotCarousel() {
+        FakeMedia photo = new FakeMedia(
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/only.jpg", 1080))),
+                null, null, "1234567890", false, false);
+        ObservedMedia photoMedia = MediaModelReader.read(photo);
+        check(photoMedia != null && photoMedia.kind() == DownloadKind.PHOTO,
+                "a photo with candidate lists is a photo, not a carousel");
+
+        FakeMedia video = new FakeMedia(
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/cover.jpg", 640))),
+                Arrays.asList(new VideoUrl("https://cdn.example/clip.mp4")),
+                null, "1234567890", false, false);
+        ObservedMedia videoMedia = MediaModelReader.read(video);
+        check(videoMedia != null && videoMedia.kind() == DownloadKind.VIDEO,
+                "a video with a versions list is a video, not a carousel");
     }
 
     private static void modelRejection() {
@@ -208,23 +292,37 @@ public final class MediaObservationTest {
         check(MediaModelReader.read("a string") == null, "a string is not media");
         check(MediaModelReader.read(new Object()) == null,
                 "an object without media is not media");
-        FakeMedia empty = new FakeMedia(null, null, null, null, false);
+        FakeMedia empty = new FakeMedia(null, null, null, null, false, false);
         check(MediaModelReader.read(empty) == null,
                 "a model without versions is not media");
-        FakeMedia blankUrl = new FakeMedia(new ImageInfo("", 10), null, null, "1",
-                false);
+        FakeMedia blankUrl = new FakeMedia(
+                new ImageInfo(Arrays.asList(new ImageCandidate("", 10))), null,
+                null, "1234567890", false, false);
         check(MediaModelReader.read(blankUrl) == null,
                 "a blank URL is not media");
-        FakeMedia notALink = new FakeMedia(new ImageInfo("not-a-link", 10), null,
-                null, "1", false);
+        FakeMedia notALink = new FakeMedia(
+                new ImageInfo(Arrays.asList(new ImageCandidate("not-a-link", 10))),
+                null, null, "1234567890", false, false);
         check(MediaModelReader.read(notALink) == null,
                 "a value that is not a link is not a URL");
+
+        // A model whose only string is not numeric has no id. Taking the
+        // first string would key every media under the same value and break
+        // duplicate detection.
+        FakeMedia named = new FakeMedia(
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/named.jpg", 1080))),
+                null, null, "photo", false, false);
+        ObservedMedia namedMedia = MediaModelReader.read(named);
+        check(namedMedia != null, "a model with a non-numeric string is still media");
+        check(namedMedia.id() == null, "a non-numeric string is not used as an id");
     }
 
     private static void observationToItem() {
         FakeMedia model = new FakeMedia(
-                new ImageInfo("https://cdn.example/large.jpg", 1080), null, null,
-                "3123456789", false);
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/large.jpg", 1080))),
+                null, null, "3123456789", false, false);
         ObservedMedia media = MediaModelReader.read(model);
         MediaItem item = media.toMediaItem();
         check("3123456789".equals(item.id()), "the engine item keeps the id");
@@ -300,7 +398,7 @@ public final class MediaObservationTest {
         }
 
         public String zz4() {
-            return "777";
+            return "1234567890";
         }
     }
 
@@ -311,7 +409,8 @@ public final class MediaObservationTest {
      */
     private static void nonMediaListFallback() {
         TaggedMedia tagged = new TaggedMedia(
-                new ImageInfo("https://cdn.example/tagged.jpg", 1080),
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/tagged.jpg", 1080))),
                 Arrays.asList("alice", "bob"), Arrays.asList(1L, 2L));
         ObservedMedia media = MediaModelReader.read(tagged);
         check(media != null, "a photo with a tag list is still read");
@@ -320,10 +419,12 @@ public final class MediaObservationTest {
                 "the photo URL is read");
 
         // A list of child models that carry no media is not a carousel either.
-        FakeMedia emptyChild = new FakeMedia(null, null, null, "child", false);
+        FakeMedia emptyChild = new FakeMedia(null, null, null, "1234567890123",
+                false, false);
         FakeMedia parent = new FakeMedia(
-                new ImageInfo("https://cdn.example/parent.jpg", 1080), null,
-                Arrays.asList(emptyChild), "888", false);
+                new ImageInfo(Arrays.asList(
+                        new ImageCandidate("https://cdn.example/parent.jpg", 1080))),
+                null, Arrays.asList(emptyChild), "1234567890124", false, false);
         ObservedMedia fallback = MediaModelReader.read(parent);
         check(fallback != null, "a photo with an unreadable child list is still read");
         check(DownloadKind.PHOTO == fallback.kind(),

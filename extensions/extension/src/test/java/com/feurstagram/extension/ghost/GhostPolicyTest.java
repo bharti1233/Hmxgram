@@ -45,8 +45,14 @@ public final class GhostPolicyTest {
                 supportedFirst();
             }
         });
+        failures += group("master gating", new Runnable() {
+            @Override
+            public void run() {
+                masterGating();
+            }
+        });
         if (failures == 0) {
-            System.out.println("PASS 4 ghost-policy tests");
+            System.out.println("PASS 5 ghost-policy tests");
         }
         return failures;
     }
@@ -159,6 +165,29 @@ public final class GhostPolicyTest {
         check(supported == 2, "both supported controls are in the first group");
         check(ordered[0].isSupported() && ordered[1].isSupported(),
                 "the two supported switches are the first two rows");
+    }
+
+    /**
+     * The master switch is the card's switch: off keeps every supported
+     * control inactive, on restores the stored choices, and no unsupported
+     * control can ever become active.
+     */
+    private static void masterGating() {
+        GhostFeature[] supported = {
+                GhostFeature.CONFIRM_BEFORE_SAVING,
+                GhostFeature.HIDE_DOWNLOAD_HISTORY,
+        };
+        for (GhostFeature feature : supported) {
+            check(feature.isSupported(), feature.id() + " is supported");
+            check(!GhostPolicy.isActive(feature, false, true),
+                    "master off disables " + feature.id());
+            check(GhostPolicy.isActive(feature, true, true),
+                    "master on restores " + feature.id());
+        }
+        check(!GhostPolicy.isActive(GhostFeature.HIDE_STORY_SEEN, true, true),
+                "the master switch cannot enable an unsupported control");
+        check(!GhostPolicy.isActive(GhostFeature.HIDE_MESSAGE_SEEN, true, true),
+                "the master switch cannot enable another unsupported control");
     }
 
     private static void check(boolean condition, String message) {

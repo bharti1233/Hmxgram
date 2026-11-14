@@ -35,6 +35,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.feurstagram.extension.downloader.android.DownloaderSwitch;
+import com.feurstagram.extension.ghost.android.GhostState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -650,6 +651,7 @@ public final class Settings {
         addSectionRow(context, app, "eye_off", "Ghost Mode",
                 ghostSummary(),
                 () -> openGhostMode(context));
+        addGhostMasterRow(context, app);
         addSectionRow(context, app, "info", "About HMX Insta+", "HMX Insta+ by HMXPanel",
                 () -> pages.open("About HMX Insta+", "HMX Insta+ by HMXPanel.", Settings::buildAbout));
         sealGroup(context, app);
@@ -886,6 +888,46 @@ public final class Settings {
                 DownloaderSwitch.setEnabled(context, isChecked));
         row.addView(toggle);
         row.setOnClickListener(v -> toggle.toggle());
+    }
+
+    /**
+     * The Ghost Mode master switch, on the Ghost Mode card itself.
+     *
+     * <p>It is the same switch the Ghost Mode screen owns, so the user does
+     * not have to open a second screen to turn the feature on. It writes the
+     * same preference the screen writes, so a change made here is visible
+     * there and survives a restart.
+     *
+     * <p>The master switch never erases the individual choices: off only
+     * makes the supported controls inactive, on restores the stored choices.
+     * An unsupported control is never enabled by either position.</p>
+     */
+    private static void addGhostMasterRow(Context context, LinearLayout parent) {
+        LinearLayout row = makeRow(context, parent, "Ghost Mode master",
+                "Off keeps every supported control inactive. Supported choices are kept"
+                        + " and come back when you turn this on.");
+        ExpressiveSwitch toggle = new ExpressiveSwitch(context);
+        try {
+            GhostState state = GhostState.get(context);
+            toggle.setChecked(state.isMasterOn());
+            toggle.setContentDescription("Ghost Mode master");
+            toggle.setOnCheckedChangeListener((btn, isChecked) ->
+                    GhostState.get(context).setMasterOn(isChecked));
+        } catch (RuntimeException e) {
+            // The privacy state is the app's own preferences; if they cannot
+            // be read, the switch is shown off and disabled rather than
+            // offering a control that would do nothing.
+            toggle.setEnabled(false);
+            toggle.setAlpha(0.38f);
+            row.setEnabled(false);
+            row.setClickable(false);
+            row.setAlpha(0.38f);
+            return;
+        }
+        row.addView(toggle);
+        row.setOnClickListener(v -> {
+            if (toggle.isEnabled()) toggle.toggle();
+        });
     }
 
     private static String landingLabel(String value) {

@@ -37,13 +37,12 @@ BASE="${HMX_DOWNLOADER_BASE:-a94b5e191117ab9d8e266eaf497059c437761314}"
 # params helper to parameterTypes after the first gated build caught the
 # unresolved reference. No other digested file changed.
 #
-# Re-pinned for the settings fix: Settings.java gained the live Downloader
-# ON/OFF row (downloads section) and the Ghost Mode state summary, and the
-# Ghost Mode screen now marks unsupported rows with an explicit UNSUPPORTED
-# label and orders the supported switches first. The switch itself lives in
-# downloader/android/DownloaderSwitch.java, outside this digest by design;
-# every other digested file is byte-identical to the previous pin.
-PINNED_PROTECTED_DIGEST="09ee9a969d18996ae520af0e37507839598e68f7859584143067dafe56d52203"
+# Re-pinned for M9: Settings.java gained the Ghost Mode master switch on the
+# App card, and the media observer patch learned the video_versions accessor so
+# a video is read as a video. The core reader, the observer and the overlay
+# live outside this digest by design; every other digested file is
+# byte-identical to the previous pin.
+PINNED_PROTECTED_DIGEST="ad132351e960225ae8450a3819279c5b6555af52ee3e80bbb2cb5ae68a61f94e"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 

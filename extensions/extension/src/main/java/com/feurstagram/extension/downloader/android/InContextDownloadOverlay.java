@@ -80,11 +80,26 @@ public final class InContextDownloadOverlay {
     /** How often the chip re-checks the observation's freshness. */
     private static final long REFRESH_MS = 1000L;
 
-    private static final String[] FEED_ANCHORS = {"like_button"};
+    /**
+     * The read-only resource ids that say which Instagram surface is on
+     * screen.
+     *
+     * <p>These are the ids of the published build, confirmed against its
+     * resource table. The feed row does not use the generic {@code like_button}
+     * anymore: it has its own {@code row_feed_*} buttons, so the feed anchors
+     * include both, and the feed is recognised whichever shape a row uses.
+     * Reels keep the {@code clips_*} bar and stories the viewer's reply
+     * composer. The ids are only looked up by name in the host's resource
+     * table; a name that disappears in a later build simply matches nothing.
+     */
+    private static final String[] FEED_ANCHORS = {
+            "row_feed_button_like", "row_feed_button_comment",
+            "row_feed_button_save", "row_feed_photo_imageview", "like_button"};
     private static final String[] REELS_ANCHORS = {
             "clips_ufi_like_button", "clips_viewer_action_bar"};
     private static final String[] STORY_ANCHORS = {
-            "reel_viewer_message_composer", "reel_viewer_header"};
+            "story_viewer_message_composer", "reel_viewer_message_composer",
+            "reel_viewer_header"};
 
     private InContextDownloadOverlay() {
     }
@@ -190,6 +205,43 @@ public final class InContextDownloadOverlay {
 
         @Override
         public void onActivityDestroyed(Activity activity) {
+            if (activity == null) {
+                return;
+            }
+            try {
+                View decor = activity.getWindow() == null
+                        ? null : activity.getWindow().getDecorView();
+                removeChips(decor);
+            } catch (Throwable failure) {
+                Log.w(TAG, "could not remove the download action from a window", failure);
+            }
+        }
+    }
+
+    /**
+     * Removes every chip of a window that is going away.
+     *
+     * <p>The chip removes itself when its view detaches, but a destroyed
+     * activity may tear the tree down in any order; removing it here as well
+     * is what guarantees no overlay outlives the window. The lookup is by tag,
+     * so no reference to the chip has to be kept.
+     */
+    private static void removeChips(View decor) {
+        if (!(decor instanceof ViewGroup)) {
+            return;
+        }
+        View tagged;
+        while ((tagged = decor.findViewWithTag(VIEW_TAG)) != null) {
+            ViewParent parent = tagged.getParent();
+            if (!(parent instanceof ViewGroup)) {
+                return;
+            }
+            try {
+                ((ViewGroup) parent).removeView(tagged);
+            } catch (RuntimeException ignored) {
+                // The window may already be tearing down.
+                return;
+            }
         }
     }
 

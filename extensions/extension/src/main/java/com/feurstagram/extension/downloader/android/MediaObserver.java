@@ -35,7 +35,8 @@ public final class MediaObserver {
     private static final int MAX_PENDING = 32;
 
     private static final MediaRegistry REGISTRY = new MediaRegistry();
-    private static final ArrayDeque<Object> PENDING = new ArrayDeque<Object>();
+    private static final ArrayDeque<Observation> PENDING =
+            new ArrayDeque<Observation>();
     private static final Object LOCK = new Object();
 
     /**
@@ -146,15 +147,75 @@ public final class MediaObserver {
         }
         try {
             synchronized (LOCK) {
-                while (PENDING.size() >= MAX_PENDING) {
-                    PENDING.pollFirst();
-                }
-                PENDING.addLast(model);
+                enqueue(new Observation(model));
             }
             ensureWorker();
         } catch (RuntimeException e) {
             // The observer must never break the caller.
             Log.w(TAG, "could not queue an observed media", e);
+        }
+    }
+
+    /**
+     * Records the video versions Instagram read for a media model.
+     *
+     * <p>Instagram 454 has no video info object: the video URLs live in a list
+     * the media accessor returns. The {@code video_versions} hook hands that
+     * list here, and it is paired with the model it belongs to, so the model
+     * is read once, as a video when it is one.
+     *
+     * <p>It never blocks and never throws.
+     *
+     * @param model  the media model the versions belong to
+     * @param videos the list the accessor returned
+     */
+    public static void observeVideo(Object model, Object videos) {
+        if (!enabled || model == null || videos == null) {
+            return;
+        }
+        if (Boolean.TRUE.equals(READING.get())) {
+            return;
+        }
+        try {
+            synchronized (LOCK) {
+                enqueue(new Observation(model, videos));
+            }
+            ensureWorker();
+        } catch (RuntimeException e) {
+            Log.w(TAG, "could not queue the video versions of an observed media", e);
+        }
+    }
+
+    /** Adds an observation, pairing the versions with a queued model. */
+    private static void enqueue(Observation observation) {
+        while (PENDING.size() >= MAX_PENDING) {
+            PENDING.pollFirst();
+        }
+        if (observation.videos == null) {
+            PENDING.addLast(observation);
+            return;
+        }
+        for (Observation queued : PENDING) {
+            if (queued.model == observation.model) {
+                queued.videos = observation.videos;
+                return;
+            }
+        }
+        PENDING.addLast(observation);
+    }
+
+    /** One model the user is looking at, and the video versions of it. */
+    private static final class Observation {
+        private final Object model;
+        private Object videos;
+
+        Observation(Object model) {
+            this(model, null);
+        }
+
+        Observation(Object model, Object videos) {
+            this.model = model;
+            this.videos = videos;
         }
     }
 
@@ -178,11 +239,11 @@ public final class MediaObserver {
         public void run() {
             long idleSince = System.currentTimeMillis();
             while (true) {
-                Object model;
+                Observation observation;
                 synchronized (LOCK) {
-                    model = PENDING.pollFirst();
+                    observation = PENDING.pollFirst();
                 }
-                if (model == null) {
+                if (observation == null) {
                     // The thread only lives while there is something to read.
                     // A user who stopped browsing does not pay a wake-up every
                     // second for the rest of the session.
@@ -209,7 +270,7 @@ public final class MediaObserver {
                 ObservedMedia media = null;
                 READING.set(Boolean.TRUE);
                 try {
-                    media = MediaModelReader.read(model);
+                    media = MediaModelReader.read(observation.model, observation.videos);
                 } catch (RuntimeException e) {
                     Log.w(TAG, "could not read an observed media", e);
                 } finally {
