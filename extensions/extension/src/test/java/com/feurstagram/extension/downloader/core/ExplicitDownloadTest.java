@@ -7,6 +7,7 @@ package com.feurstagram.extension.downloader.core;
  * must create no jobs, and exactly one media must be queued when the user
  * explicitly confirms. Pure JDK: no Android class, no device.
  */
+@SuppressWarnings("deprecation") // Exercises the retained M10 compatibility rules.
 public final class ExplicitDownloadTest {
 
     private ExplicitDownloadTest() {

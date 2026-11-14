@@ -54,18 +54,18 @@
   "exceptions": [
     {
       "id": "tier2.row_binding.observe",
-      "milestone": "M4",
-      "active": false,
+      "milestone": "M11",
+      "active": true,
       "enabled_by_default": true,
       "surface": "list.row_binding",
       "allowed_diff": "exactly one invoke-static/range {holder, model} inserted at the first instruction of the resolved void bind(Holder, Model) method; no other added, removed or reordered instruction",
-      "callee": "com.feurstagram.extension.downloader.DownloaderBinder.observe(Ljava/lang/Object;Ljava/lang/Object;)V",
+      "callee": "com.feurstagram.extension.downloader.DownloaderBinder.bindFeed(Ljava/lang/Object;Ljava/lang/Object;)V",
       "requirements": [
         "must catch everything and never throw into Instagram",
-        "read-only: no mutation of model, holder, row or layout",
+        "no mutation of Instagram models or native controls; add only an HMX-owned sibling beside the bookmark in supported rows",
         "inert when the downloader master switch is off",
         "in-context buttons only in the holder own view group and only when explicitly enabled",
-        "gate is recorded but not enforced until M4; activating it requires the exact-diff check"
+        "M11 enforces the exact prefix invocation and unchanged original class after removing that invocation"
       ]
     }
   ],
@@ -428,14 +428,18 @@
       {
         "id": "list.row_binding",
         "category": "list_binding",
-        "enforce": false,
+        "enforce": true,
         "mode": "strings",
         "string_sets": [
           [
             "IgRecyclerViewAdapter.mDefinitions"
+          ],
+          [
+            "itas-android",
+            "Lcom/instagram/ui/widget/bouncyufibutton/IgBouncyUfiButtonImageView;"
           ]
         ],
-        "note": "declared read-only exception tier2.row_binding.observe; activated at M4"
+        "note": "M11: retain adapter freeze and allow exactly the model/holder prefix hook in the native feed action binder"
       },
       {
         "id": "auth.signature_identity",

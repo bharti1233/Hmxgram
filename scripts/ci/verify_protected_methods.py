@@ -152,6 +152,58 @@ def normalize_class(lines):
     return out
 
 
+def strip_feed_hook(lines):
+    """Undo exactly one prefix hook, preserving every original instruction.
+
+    The range must be the last two input registers of the four-object instance
+    binder. Any other insertion, method signature, register change or branch
+    change remains visible to the existing class equality comparison.
+    """
+    result = list(lines)
+    callee = ("Lcom/feurstagram/extension/downloader/DownloaderBinder;."
+              "bindFeed:(Ljava/lang/Object;Ljava/lang/Object;)V")
+    hits = [i for i, line in enumerate(result) if callee in line]
+    if not hits:
+        return result
+    if len(hits) != 1:
+        raise ValueError("expected exactly one native feed hook")
+    index = hits[0]
+    header = result[index - 1]
+    if not re.fullmatch(r"header: [^:]+:\((?:L[^;]+;){4}\)V", header):
+        raise ValueError("feed hook is not at the four-object binder entry")
+    metadata_start = max(i for i in range(index) if "name          :" in result[i])
+    metadata = result[metadata_start:index]
+    registers = next(int(re.search(r":\s*(\d+)", x).group(1))
+                     for x in metadata if "registers" in x)
+    if not any(re.search(r"ins\s*:\s*5$", x) for x in metadata):
+        raise ValueError("feed binder input register shape changed")
+    expected = "instr 0000: invoke-static/range {v%d, v%d}, %s" % (
+        registers - 2, registers - 1, callee)
+    if result[index] != expected:
+        raise ValueError("feed hook operands changed")
+    for i in range(metadata_start, index):
+        if "insns size" in result[i]:
+            result[i] = re.sub(r"(insns size\s*:\s*)(\d+)",
+                               lambda m: m[1] + str(int(m[2]) - 3), result[i])
+    del result[index]
+    i = index
+    while i < len(result) and result[i].startswith("instr "):
+        line = result[i]
+        match = re.match(r"instr ([0-9a-f]+): (.*)", line)
+        address, instruction = int(match[1], 16), match[2]
+        if address < 3 or any(x in instruction for x in
+                              ("packed-switch", "sparse-switch", "fill-array-data")):
+            raise ValueError("unsupported feed binder control flow")
+        if instruction.startswith(("if-", "goto")):
+            instruction = re.sub(r"([0-9a-f]{4,})$",
+                                 lambda m: "%04x" % (int(m[1], 16) - 3), instruction)
+        result[i] = "instr %04x: %s" % (address - 3, instruction)
+        i += 1
+    if i >= len(result) or "catches       : (none)" not in result[i]:
+        raise ValueError("feed binder catch structure changed")
+    return result
+
+
 def scan_dex_multi(dexdump, dex_path, specs):
     """Stream one dex once and return {surface_id: {descriptor: lines}}."""
     process = subprocess.Popen(
@@ -528,6 +580,12 @@ def main():
                 )
                 continue
 
+            if surface_id == "list.row_binding":
+                try:
+                    candidate_classes = {key: strip_feed_hook(value)
+                                         for key, value in candidate_classes.items()}
+                except ValueError as error:
+                    problems.append("list.row_binding: " + str(error))
             surface_problems = compare_surface(
                 surface_id, baseline_classes, candidate_classes
             )

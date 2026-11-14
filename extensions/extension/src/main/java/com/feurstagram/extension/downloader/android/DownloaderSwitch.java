@@ -22,6 +22,12 @@ public final class DownloaderSwitch {
     public static final String PREFS_NAME = "hmx_downloader";
 
     private static final String KEY_ENABLED = "enabled";
+    private static final java.util.concurrent.CopyOnWriteArrayList<Runnable> LISTENERS =
+            new java.util.concurrent.CopyOnWriteArrayList<Runnable>();
+
+    public static void addChangeListener(Runnable listener) {
+        if (listener != null) LISTENERS.addIfAbsent(listener);
+    }
 
     private DownloaderSwitch() {
     }
@@ -47,6 +53,9 @@ public final class DownloaderSwitch {
         }
         try {
             preferences.edit().putBoolean(KEY_ENABLED, value).apply();
+            for (Runnable listener : LISTENERS) {
+                try { listener.run(); } catch (Throwable ignored) { }
+            }
         } catch (RuntimeException ignored) {
             // The switch keeps its previous value; nothing better to do.
         }

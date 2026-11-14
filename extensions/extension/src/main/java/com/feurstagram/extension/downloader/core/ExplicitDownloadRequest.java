@@ -51,7 +51,131 @@ public final class ExplicitDownloadRequest {
     }
 
     /**
-     * Evaluates an explicit request.
+     * Evaluates a request bound to the exact UI element the user tapped.
+     *
+     * <p>This is the M11 entry point. The caller hands over the media that was
+     * read from the tapped row or Reel page itself; no global "latest"
+     * observation and no age window is consulted. That is what makes it
+     * impossible for a preloaded Home video or a previous Reel to be saved by
+     * accident.
+     *
+     * @param media     the media bound to the tapped control, or {@code null}
+     * @param surface   the surface the control belongs to, or {@code null}
+     * @param enabled   the downloader master switch
+     * @param nowMs     the current time, for the story expiry rule
+     * @param itemIndex the selected carousel child, or {@code -1}
+     * @param allItems  whether every carousel child was selected
+     */
+    public static ExplicitDownloadRequest evaluateBound(ObservedMedia media,
+            InContextAction.Surface surface, boolean enabled, long nowMs,
+            int itemIndex, boolean allItems) {
+        if (!enabled) {
+            return refused(Status.DISABLED, "The HMX downloader is off."
+                    + " Turn it on in HMX Insta settings → Downloads.");
+        }
+        if (media == null || surface == null || !hasIdentity(media)) {
+            return refused(Status.UNSUPPORTED, UNRESOLVED);
+        }
+        if (media.expiresAtEpochMs() > 0L && nowMs >= media.expiresAtEpochMs()) {
+            return refused(Status.EXPIRED,
+                    "This story has expired and can no longer be saved.");
+        }
+        if (surface == InContextAction.Surface.REELS
+                && media.kind() != DownloadKind.VIDEO) {
+            return refused(Status.UNSUPPORTED,
+                    "This looks like a Reel cover, not a playable video."
+                            + " HMX will not download the cover.");
+        }
+        if (media.kind().isContainer()) {
+            List<ObservedMedia> children = media.children();
+            if (allItems) {
+                return ready(media, InContextAction.targets(media), nowMs);
+            }
+            if (itemIndex < 0 || itemIndex >= children.size()) {
+                return refused(Status.UNSUPPORTED,
+                        "Choose the carousel item to download.");
+            }
+            ObservedMedia child = children.get(itemIndex);
+            if (child == null || child.kind().isContainer()
+                    || !isBoundTarget(child)) {
+                return refused(Status.UNSUPPORTED, UNRESOLVED);
+            }
+            if (child.expiresAtEpochMs() > 0L && nowMs >= child.expiresAtEpochMs()) {
+                return refused(Status.EXPIRED,
+                        "This story has expired and can no longer be saved.");
+            }
+            return new ExplicitDownloadRequest(Status.READY,
+                    Collections.singletonList(child), 0, null);
+        }
+        if (!isBoundTarget(media)) {
+            return refused(Status.UNSUPPORTED, UNRESOLVED);
+        }
+        return ready(media, Collections.singletonList(media), nowMs);
+    }
+
+    /** The message used when a control exists but its media cannot be resolved. */
+    public static final String UNRESOLVED = "Unable to resolve this media.";
+
+    private static boolean hasIdentity(ObservedMedia media) {
+        return media != null && media.id() != null && !media.id().trim().isEmpty();
+    }
+
+    private static boolean isBoundTarget(ObservedMedia media) {
+        if (!hasIdentity(media) || !media.isDownloadable()) return false;
+        try {
+            String url = media.url().toLowerCase(java.util.Locale.ROOT);
+            if (!url.matches("https?://[a-z0-9.-]+(?::[0-9]+)?/[^\\s\\\\]*")) return false;
+            int queryStart = url.indexOf('?');
+            int fragmentStart = url.indexOf('#');
+            int pathEnd = queryStart < 0 ? url.length() : queryStart;
+            if (fragmentStart >= 0) pathEnd = Math.min(pathEnd, fragmentStart);
+            String path = url.substring(url.indexOf('/', url.indexOf("://") + 3), pathEnd);
+            if (path.endsWith(".m3u8") || path.endsWith(".mpd")
+                    || path.endsWith(".m4s") || path.endsWith(".ts")) return false;
+            if (media.kind() == DownloadKind.VIDEO
+                    && (path.endsWith(".jpg") || path.endsWith(".jpeg")
+                    || path.endsWith(".png") || path.endsWith(".webp"))) return false;
+            String query = queryStart < 0 ? null : url.substring(queryStart + 1);
+            return query == null || !query.toLowerCase(java.util.Locale.ROOT)
+                    .matches(".*(?:^|&)(?:bytestart|byteend|range)=.*");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** Whether the bound media is a carousel that needs an item choice. */
+    public static boolean needsCarouselChoice(ObservedMedia media) {
+        return media != null && media.kind().isContainer()
+                && !media.children().isEmpty();
+    }
+
+    private static ExplicitDownloadRequest ready(ObservedMedia media,
+            List<ObservedMedia> candidates, long nowMs) {
+        List<ObservedMedia> usable = new ArrayList<ObservedMedia>();
+        for (ObservedMedia target : candidates) {
+            if (!isBoundTarget(target)) {
+                continue;
+            }
+            if (target.expiresAtEpochMs() > 0L && nowMs >= target.expiresAtEpochMs()) {
+                continue;
+            }
+            usable.add(target);
+        }
+        if (usable.isEmpty()) {
+            return refused(Status.UNSUPPORTED, UNRESOLVED);
+        }
+        return new ExplicitDownloadRequest(Status.READY,
+                Collections.unmodifiableList(usable),
+                InContextAction.skippedChildren(media), null);
+    }
+
+    /**
+     * Evaluates an unbound, age-based observation.
+     *
+     * <p>Kept only for the M10 regression suite. M11 production code calls
+     * {@link #evaluateBound} with the media bound to the tapped control; the
+     * age window is not a substitute for identity and is never used by a
+     * control.
      *
      * @param media     the observed media, or {@code null}
      * @param ageMs     how long ago the observation was accepted
@@ -59,6 +183,7 @@ public final class ExplicitDownloadRequest {
      * @param enabled   the downloader master switch
      * @param nowMs     the current time, for the story expiry rule
      */
+    @Deprecated
     public static ExplicitDownloadRequest evaluate(ObservedMedia media, long ageMs,
             InContextAction.Surface surface, boolean enabled, long nowMs) {
         if (!enabled) {

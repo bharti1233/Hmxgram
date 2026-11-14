@@ -52,6 +52,7 @@ java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderCor
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.DownloaderUiTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.MediaObservationTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.ExplicitDownloadTest
+java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.BoundDownloadTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.InContextActionTest
 java -cp "$WORK/classes" com.feurstagram.extension.downloader.core.OverlayLifecyclePolicyTest
 
@@ -61,3 +62,4 @@ java -cp "$WORK/classes" com.feurstagram.extension.ghost.GhostPolicyTest
 
 echo
 echo "Downloader core logic tests passed."
+python3 scripts/ci/test_native_feed_hook.py

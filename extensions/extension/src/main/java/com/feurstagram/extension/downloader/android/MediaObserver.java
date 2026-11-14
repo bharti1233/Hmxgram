@@ -61,19 +61,19 @@ public final class MediaObserver {
     }
 
     /**
-     * The most recent accepted observation, or {@code null}.
+     * The most recent accepted observation, for diagnostics only.
      *
-     * <p>The in-context action offers this media. It is not tied to a row:
-     * Instagram's row binder is untouched, so the sheet asks the user to
-     * confirm instead of pretending the action belongs to one post.
+     * <p>M11 deliberately does <strong>not</strong> expose this to a download
+     * control. Using the latest observation was the root cause of the wrong
+     * media being saved: a preloaded Home video could be "the latest" while a
+     * Reel was on screen. A control now carries the media read from its own
+     * row or page, and nothing else may enqueue.
+     *
+     * @deprecated the bound controls must never fall back to a global media
      */
-    public static ObservedMedia latest() {
+    @Deprecated
+    static ObservedMedia latestForDiagnostics() {
         return SESSION.latest();
-    }
-
-    /** How long ago the latest observation was accepted, in milliseconds. */
-    public static long latestAgeMs() {
-        return SESSION.latestAgeMs(System.currentTimeMillis());
     }
 
     /** Registers an in-context listener; it is called on the main thread. */

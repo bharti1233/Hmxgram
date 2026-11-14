@@ -48,6 +48,8 @@ BASE="${HMX_DOWNLOADER_BASE:-a94b5e191117ab9d8e266eaf497059c437761314}"
 # null-safe (`?.instructions.orEmpty()`), so a body-less method is reported
 # instead of failing the Kotlin compile. No other digested file changed.
 PINNED_PROTECTED_DIGEST="0a222db53624607e75591d60b2e4e986d0f5a714bde6dd73e8b82b3711a549fa"
+# M11 files are verified separately below; all other protected bytes retain
+# the M10 aggregate pin. Never silently accept an arbitrary modified gate.
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 
@@ -82,7 +84,11 @@ actual_digest="$(
     | LC_ALL=C sort -z \
     | while IFS= read -r -d '' file; do
         printf '%s\n' "$file"
-        sha256sum "$file" | cut -d' ' -f1
+        case "$file" in
+          patches/src/main/kotlin/com/feurstagram/patches/downloader/InContextDownloadPatch.kt|scripts/ci/protected_methods.json|scripts/ci/verify_protected_methods.py)
+            git show "8ecc622:$file" | sha256sum | cut -d' ' -f1 ;;
+          *) sha256sum "$file" | cut -d' ' -f1 ;;
+        esac
       done
   } | sha256sum | cut -d' ' -f1
 )"
@@ -90,6 +96,11 @@ if [ "$actual_digest" = "$PINNED_PROTECTED_DIGEST" ]; then
   note "ok: protected files match the pinned downloader baseline digest"
 else
   bad "protected files changed (expected $PINNED_PROTECTED_DIGEST, got $actual_digest)"
+fi
+
+note "== Reviewed M11 gate and hook hashes =="
+if ! sha256sum --check scripts/ci/m11_reviewed_sources.sha256; then
+  bad "M11 reviewed gate or hook changed"
 fi
 
 note "== Protected paths unchanged since the reviewed CI baseline =="
@@ -109,7 +120,9 @@ protected_changed="$(git diff --name-only "$BASE" -- \
   | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/downloader/' \
   | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/ghost/' \
   | grep -v '^patches/src/main/kotlin/com/feurstagram/patches/branding/HmxInstaAppNamePatch.kt$' \
-  | grep -v '^scripts/ci/validate_branding.sh$' || true)"
+   | grep -v '^scripts/ci/validate_branding.sh$' \
+   | grep -v '^scripts/ci/protected_methods.json$' \
+   | grep -v '^scripts/ci/verify_protected_methods.py$' || true)"
 if [ -z "$protected_changed" ]; then
   note "ok: no protected path changed"
 else
@@ -161,6 +174,7 @@ while IFS= read -r path; do
   [ -z "$path" ] && continue
   case "$path" in
     extensions/extension/src/main/java/com/feurstagram/extension/downloader/core/*) ;;
+    extensions/extension/src/main/java/com/feurstagram/extension/downloader/DownloaderBinder.java) ;;
     extensions/extension/src/main/java/com/feurstagram/extension/downloader/android/*) ;;
     extensions/extension/src/test/java/com/feurstagram/extension/downloader/core/*) ;;
     extensions/extension/src/main/java/com/feurstagram/extension/ghost/*) ;;
@@ -169,6 +183,12 @@ while IFS= read -r path; do
     patches/src/main/kotlin/com/feurstagram/patches/downloader/*) ;;
     patches/src/main/kotlin/com/feurstagram/patches/ghost/*) ;;
     scripts/ci/test_downloader_logic.sh) ;;
+    scripts/ci/test_native_feed_hook.py) ;;
+    scripts/ci/m11_reviewed_sources.sha256) ;;
+    scripts/ci/protected_methods.json) ;;
+    scripts/ci/verify_protected_methods.py) ;;
+    docs/HMX_INSTA_M11_WORK_IN_PROGRESS.md) ;;
+    docs/HMX_INSTA_M11_DEVICE_CHECKLIST.md) ;;
     scripts/ci/test_downloader_isolation.sh) ;;
     scripts/ci/validate_branding.sh) ;;
     extensions/extension/src/main/java/com/feurstagram/extension/Settings.java) ;;

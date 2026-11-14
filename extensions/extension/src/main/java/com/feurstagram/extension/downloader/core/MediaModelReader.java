@@ -96,6 +96,68 @@ public final class MediaModelReader {
         }
     }
 
+    /**
+     * Reads the media behind a UI-bound model.
+     *
+     * <p>M11 binds a download to the row or Reel page the user tapped. Those
+     * pages do not always hand the binder the media itself: the feed row
+     * binder receives a {@code Media} wrapper, and the Reels page hands over a
+     * Reel model that owns the {@code Media} in a public field. This method
+     * first tries the object as a media, then descends exactly one level into
+     * a field or no-argument accessor whose <em>type</em> is the Instagram
+     * media class.
+     *
+     * <p>It never guesses by position or by the latest observation. A wrapper
+     * without a readable media yields {@code null}, which the caller shows as
+     * "Unable to resolve this media" instead of enqueueing something else.
+     *
+     * @param model the model bound to the tapped control
+     * @return the media it owns, or {@code null}
+     */
+    public static ObservedMedia readWrapped(Object model) {
+        if (model == null) {
+            return null;
+        }
+        if (isMediaClass(model.getClass().getName())) return read(model);
+        Object nested = nestedMedia(model);
+        return nested == null ? null : read(nested);
+    }
+
+    /** Whether the class is Instagram's media model. */
+    private static boolean isMediaClass(String className) {
+        return className != null
+                && className.equals("com.instagram.feed.media.Media");
+    }
+
+    /**
+     * The media owned by a wrapper model, or {@code null}.
+     *
+     * <p>Only a typed field or a no-argument accessor counts. The value must
+     * also read as a media, so an unrelated field that happens to hold an
+     * object with an image accessor is not accepted.
+     */
+    private static Object nestedMedia(Object model) {
+        Object selected = null;
+        for (Field field : model.getClass().getFields()) {
+            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())
+                    || !isMediaClass(field.getType().getName())) {
+                continue;
+            }
+            try {
+                Object value = field.get(model);
+                if (value != null) {
+                    if (selected != null && selected != value) return null;
+                    selected = value;
+                }
+            } catch (Exception e) {
+                return null;
+            } catch (LinkageError e) {
+                return null;
+            }
+        }
+        return selected;
+    }
+
     private static ObservedMedia readModel(Object model, int depth, Object videos) {
         if (model == null || depth > 3) {
             return null;

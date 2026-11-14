@@ -2,6 +2,7 @@ package com.feurstagram.extension.downloader.android;
 
 import android.app.Dialog;
 import android.content.Context;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -14,6 +15,7 @@ import android.widget.Toast;
 
 import com.feurstagram.extension.Settings;
 import com.feurstagram.extension.downloader.core.DownloadQueue;
+import com.feurstagram.extension.downloader.core.DownloadRequestLog;
 import com.feurstagram.extension.downloader.core.ExplicitDownloadRequest;
 import com.feurstagram.extension.downloader.core.InContextAction;
 import com.feurstagram.extension.downloader.core.ObservedMedia;
@@ -33,19 +35,42 @@ import java.util.List;
  * foreground service, progress/completion notifications and the verified
  * MediaStore publish. Nothing here downloads, writes or reads a file itself.
  */
-final class InContextDownloadSheet {
+public final class InContextDownloadSheet {
 
     private InContextDownloadSheet() {
     }
 
-    static void show(Context context, ObservedMedia media, long ageMs,
-            InContextAction.Surface surface) {
+    public static void showBound(Context context, ObservedMedia media,
+            InContextAction.Surface surface, String source,
+            java.util.function.BooleanSupplier bindingValid) {
+        if (context == null) return;
+        if (ExplicitDownloadRequest.needsCarouselChoice(media)
+                && DownloaderSwitch.isEnabled(context)) {
+            String[] choices = new String[media.children().size() + 1];
+            for (int i = 0; i < media.children().size(); i++) {
+                choices[i] = "Item " + (i + 1) + " · " + InContextAction.title(media.children().get(i));
+            }
+            choices[choices.length - 1] = "All available items";
+            new android.app.AlertDialog.Builder(context)
+                    .setTitle("Choose carousel items")
+                    .setItems(choices, (dialog, index) -> showSelection(context, media,
+                            surface, source, index, index == choices.length - 1, bindingValid))
+                    .setNegativeButton("Cancel", null).show();
+            return;
+        }
+        showSelection(context, media, surface, source, -1, false, bindingValid);
+    }
+
+    private static void showSelection(Context context, ObservedMedia media,
+            InContextAction.Surface surface, String source, int itemIndex, boolean allItems,
+            java.util.function.BooleanSupplier bindingValid) {
         if (context == null) {
             return;
         }
-        final ExplicitDownloadRequest request = ExplicitDownloadRequest.evaluate(
-                media, ageMs, surface, DownloaderSwitch.isEnabled(context),
-                System.currentTimeMillis());
+        final ExplicitDownloadRequest request = ExplicitDownloadRequest.evaluateBound(
+                media, surface, DownloaderSwitch.isEnabled(context),
+                System.currentTimeMillis(), itemIndex, allItems);
+        Log.i("HmxDownloader", DownloadRequestLog.pending(source, surface, media, request));
         if (!request.isReady()) {
             Toast.makeText(context,
                     request.message() == null
@@ -72,7 +97,7 @@ final class InContextDownloadSheet {
             ScrollView bodyScroll = new ScrollView(context);
             bodyScroll.setVerticalScrollBarEnabled(false);
             TextView body = new TextView(context);
-            body.setText(InContextAction.detail(media, ageMs, surface)
+            body.setText(InContextAction.title(targets.get(0))
                     + "\n\nSaving " + count + (count == 1 ? " item" : " items")
                     + ". Progress and the result appear in the HMX download notification,"
                     + " and the same queue and saved history are in HMX Insta settings →"
@@ -115,8 +140,22 @@ final class InContextDownloadSheet {
             download.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
+                    if (!view.isEnabled()) return;
+                    view.setEnabled(false);
                     dialog.dismiss();
-                    enqueue(view.getContext(), targets);
+                    if (!bindingValid.getAsBoolean()) {
+                        Toast.makeText(context, ExplicitDownloadRequest.UNRESOLVED,
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    ExplicitDownloadRequest confirmed = ExplicitDownloadRequest.evaluateBound(
+                            media, surface, DownloaderSwitch.isEnabled(context),
+                            System.currentTimeMillis(), itemIndex, allItems);
+                    if (confirmed.isReady()) {
+                        enqueue(view.getContext(), media, surface, source, confirmed);
+                    } else {
+                        Toast.makeText(context, confirmed.message(), Toast.LENGTH_LONG).show();
+                    }
                 }
             });
             buttons.addView(download, new LinearLayout.LayoutParams(
@@ -134,7 +173,9 @@ final class InContextDownloadSheet {
     }
 
     /** Queues exactly the confirmed items through the existing engine. */
-    private static void enqueue(Context context, List<ObservedMedia> targets) {
+    private static void enqueue(Context context, ObservedMedia media,
+            InContextAction.Surface surface, String source, ExplicitDownloadRequest request) {
+        List<ObservedMedia> targets = request.targets();
         if (!DownloaderSwitch.isEnabled(context)) {
             Toast.makeText(context,
                     "The HMX downloader is off. Turn it on in HMX Insta settings.",
@@ -163,6 +204,8 @@ final class InContextDownloadSheet {
         } catch (RuntimeException e) {
             failed = Math.max(1, targets.size());
         }
+        Log.i("HmxDownloader", DownloadRequestLog.entry(source, surface, media, request,
+                added, duplicates, failed));
         Toast.makeText(context,
                 InContextAction.resultMessage(added, duplicates, failed),
                 Toast.LENGTH_LONG).show();

@@ -1,34 +1,25 @@
 package com.feurstagram.patches.downloader
 
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import com.android.tools.smali.dexlib2.AccessFlags
+import com.android.tools.smali.dexlib2.iface.Method
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.reference.StringReference
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.bytecodePatch
 import com.feurstagram.patches.shared.Constants.COMPATIBILITY_INSTAGRAM
 import com.feurstagram.patches.shared.Constants.EXTENSION
 
 private const val SETTINGS = "Lcom/feurstagram/extension/Settings;"
-private const val OVERLAY =
-    "Lcom/feurstagram/extension/downloader/android/InContextDownloadOverlay;"
+private const val BINDER =
+    "Lcom/feurstagram/extension/downloader/DownloaderBinder;"
 
-/**
- * Adds the in-context download action over the feed, reels and stories.
- *
- * <p>Instagram's own code is not modified. The patch hooks the extension's
- * tab-bar watcher, once, so the overlay is installed when the HMX settings
- * entry point is set up. The overlay lives in Instagram's window, reads the
- * existing read-only media observation and opens a confirmation sheet; it
- * never touches the protected row binder, a post's views or a request.
- *
- * <p>The patch is default-off: only a gated build that asks for it gets the
- * chip. If the extension method it hooks disappears, the patch fails loudly
- * instead of shipping a feature that silently does nothing.
- */
+/** Adds a model-bound action through the native feed action-row binder. */
 @Suppress("unused")
 val inContextDownloadPatch = bytecodePatch(
     name = "In-context download actions",
-    description = "Draws the HMX download action over supported feed, reels and story " +
-        "media. Read-only: it reuses the existing media observation, never modifies " +
-        "Instagram's row binder or a post's views, and always asks before saving.",
+    description = "Adds a confirmation-only download icon to supported native feed " +
+        "action rows, bound to that row's media. Unsupported layouts hide the control.",
     default = false,
 ) {
     compatibleWith(COMPATIBILITY_INSTAGRAM)
@@ -36,6 +27,40 @@ val inContextDownloadPatch = bytecodePatch(
     extendWith(EXTENSION)
 
     execute {
+        // Verify the binder's trace string, model field and native holder shape
+        // together. No obfuscated class or method name is pinned.
+        val candidates = mutableListOf<Method>()
+        classDefForEach { cls ->
+            cls.methods.forEach { method ->
+                if (method.returnType == "V" && method.parameterTypes.size == 4 &&
+                    !AccessFlags.STATIC.isSet(method.accessFlags) &&
+                    method.implementation?.instructions?.any {
+                        ((it as? ReferenceInstruction)?.reference as? StringReference)
+                            ?.string == "itas-android"
+                    } == true
+                ) {
+                    val model = classDefByOrNull(method.parameterTypes[2].toString())
+                    val holder = classDefByOrNull(method.parameterTypes[3].toString())
+                    if (model?.fields?.count {
+                            it.type == "Lcom/instagram/feed/media/Media;" &&
+                                !AccessFlags.STATIC.isSet(it.accessFlags)
+                        } == 1 && (holder?.fields?.count {
+                            it.type == "Lcom/instagram/ui/widget/bouncyufibutton/IgBouncyUfiButtonImageView;"
+                        } ?: 0) >= 2
+                    ) candidates.add(method)
+                }
+            }
+        }
+        val original = candidates.singleOrNull()
+            ?: throw PatchException("Native feed action-row binder is missing or ambiguous")
+        val feed = mutableClassDefBy(original.definingClass).methods.single {
+            it.name == original.name && it.parameterTypes == original.parameterTypes
+        }
+        // p3=model and p4=holder are consecutive even when the method uses
+        // high registers. One range invocation, no register allocation.
+        feed.addInstructions(0,
+            "invoke-static/range { p3 .. p4 }, " +
+                "$BINDER->bindFeed(Ljava/lang/Object;Ljava/lang/Object;)V")
         val settings = mutableClassDefBy(SETTINGS)
         val watcher = settings.methods.singleOrNull {
             it.name == "installHomeTabWatcher" &&
@@ -48,7 +73,7 @@ val inContextDownloadPatch = bytecodePatch(
         )
         watcher.addInstructions(
             0,
-            "invoke-static { p0 }, $OVERLAY->install(Landroid/view/ViewGroup;)V",
+            "invoke-static { p0 }, $BINDER->install(Landroid/view/ViewGroup;)V",
         )
         println("HMX: the in-context download action is installed")
     }

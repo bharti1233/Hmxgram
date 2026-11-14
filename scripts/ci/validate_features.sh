@@ -110,7 +110,7 @@ if [ -d "$ANDROID_DIR" ]; then
     PreferencesDownloadRepository.java \
     DownloadNotifier.java \
     MediaObserver.java \
-    InContextDownloadOverlay.java \
+    HmxDownloadIcon.java \
     InContextDownloadSheet.java \
     ShareTargetActivity.java \
     ShareIntentParser.java \
@@ -232,36 +232,36 @@ if [ -f "$INCONTEXT_PATCH" ]; then
     bad "in-context download patch must be default-off"
   fi
   if grep -qF -- '->install(Landroid/view/ViewGroup;)V' "$INCONTEXT_PATCH" && \
-     grep -qF 'Lcom/feurstagram/extension/downloader/android/InContextDownloadOverlay;' "$INCONTEXT_PATCH" && \
+      grep -qF 'Lcom/feurstagram/extension/downloader/DownloaderBinder;' "$INCONTEXT_PATCH" && \
      grep -qF 'Lcom/feurstagram/extension/Settings;' "$INCONTEXT_PATCH"; then
-    note "ok: in-context patch hooks only the HMX tab-bar watcher"
+    note "ok: in-context patch installs the native binder"
   else
-    bad "in-context patch must install the overlay from the HMX tab-bar watcher"
+    bad "in-context patch must install the native binder from the HMX tab-bar watcher"
   fi
-  if grep -qE 'Lcom/instagram/' "$INCONTEXT_PATCH"; then
+  if grep 'Lcom/instagram/' "$INCONTEXT_PATCH" | grep -vE 'feed/media/Media;|ui/widget/bouncyufibutton/IgBouncyUfiButtonImageView;' >/dev/null; then
     bad "in-context patch names an Instagram class; it must stay inside the extension"
   else
-    note "ok: in-context patch names no Instagram class"
+    note "ok: only the reviewed native media and button types are referenced"
   fi
-  if grep -qE 'row_binding|DownloaderBinder|observeMedia|Lcom/instagram/feed/media/Media;' "$INCONTEXT_PATCH"; then
-    bad "in-context patch touches the protected row binder or a media model"
+  if ! python3 scripts/ci/test_native_feed_hook.py; then
+    bad "native row binder exact-diff enforcement failed"
   else
-    note "ok: in-context patch never touches the row binder or a media model"
+    note "ok: native row hook exact-diff tests pass"
   fi
 else
   bad "missing in-context download patch: $INCONTEXT_PATCH"
 fi
 
-note "== In-context overlay owns its theme and fails safe =="
-INCONTEXT_OVERLAY="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android/InContextDownloadOverlay.java"
+note "== Native icon owns its drawing and fails safe =="
+INCONTEXT_OVERLAY="extensions/extension/src/main/java/com/feurstagram/extension/downloader/DownloaderBinder.java"
 if [ -f "$INCONTEXT_OVERLAY" ]; then
-  if grep -qF 'new ContextThemeWrapper(activity, CHIP_THEME)' "$INCONTEXT_OVERLAY"; then
-    note "ok: the chip is built with a theme the extension owns"
+  if grep -qF 'extends View' "$ANDROID_DIR/HmxDownloadIcon.java"; then
+    note "ok: icon extends plain View"
   else
     bad "the chip must be built with its own themed context"
   fi
-  if grep -qE 'CHIP_THEME[[:space:]]*=[[:space:]]*android\.R\.style\.Theme_' "$INCONTEXT_OVERLAY"; then
-    note "ok: the chip theme is a framework theme"
+  if grep -qF 'protected void onDraw(Canvas canvas)' "$ANDROID_DIR/HmxDownloadIcon.java"; then
+    note "ok: icon draws its own glyph"
   else
     bad "the chip theme must be a framework theme the host cannot corrupt"
   fi
@@ -276,15 +276,15 @@ if [ -f "$INCONTEXT_OVERLAY" ]; then
   else
     bad "overlay installation must catch Throwable so it cannot crash Instagram"
   fi
-  if grep -qF 'findActivity(' "$INCONTEXT_OVERLAY" && \
-     grep -qF 'OverlayLifecyclePolicy.decide(' "$INCONTEXT_OVERLAY"; then
-    note "ok: attachment waits for a real Activity context"
+  if grep -qF 'control.isAttachedToWindow()' "$INCONTEXT_OVERLAY" && \
+     grep -qF 'control.bindingGeneration() == generation' "$INCONTEXT_OVERLAY"; then
+    note "ok: confirmation checks attachment and binding generation"
   else
     bad "attachment must wait for an Activity context through the lifecycle policy"
   fi
-  if grep -qF 'MediaObserver.removeListener(this)' "$INCONTEXT_OVERLAY" && \
-     grep -qF 'handler.removeCallbacks(tick)' "$INCONTEXT_OVERLAY"; then
-    note "ok: the chip releases its listener and clock when detached"
+  if grep -qF 'protected void onDetachedFromWindow()' "$ANDROID_DIR/HmxDownloadIcon.java" && \
+     grep -qF 'boundModel = null' "$ANDROID_DIR/HmxDownloadIcon.java"; then
+    note "ok: detached icon clears its media reference"
   else
     bad "the chip must clean up when its host goes away"
   fi
