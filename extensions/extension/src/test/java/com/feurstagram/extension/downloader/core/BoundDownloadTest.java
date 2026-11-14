@@ -17,6 +17,11 @@ public final class BoundDownloadTest {
         binding.invalidate(); // detached
         check(!binding.matches(secondTap), "detached control accepted confirmation");
         ObservedMedia selected = video("A", "https://cdn.example/A.mp4");
+        selected = selected.withPreview("https://cdn.example/A-cover.jpg");
+        check("https://cdn.example/A-cover.jpg".equals(selected.previewUrl()),
+                "selected preview missing");
+        check("https://cdn.example/A.mp4".equals(selected.toMediaItem().url()),
+                "preview replaced playable download target");
         ObservationSession observations = new ObservationSession();
         observations.observe(video("B", "https://cdn.example/B.mp4"), 1000L);
         ExplicitDownloadRequest request = request(selected, true);

@@ -55,8 +55,19 @@ The source isolation check preserves the M10 aggregate over unchanged protected
 files and separately pins the three explicit M11 hook/verifier files in
 `scripts/ci/m11_reviewed_sources.sha256`. The lightweight isolation check passes.
 
-Reels pager/control integration is pending. The confirmation sheet has textual type information; visual preview
-and current-carousel-position discovery remain pending. Request logging still
+Reels now registers the pager owner at its constructor's sole return, resolved
+from the `ClipsViewerAdapter_getItemOrNull` trace. Runtime reflection requires
+one typed current-page reader and one ViewPager2 field. The icon is offered
+only in a visible native `clips_viewer_action_bar` FrameLayout with an empty
+end slot. Any sibling intersection, unsupported layout, moving pager, missing
+page, or detached pager hides it. Confirmation rechecks page identity and index.
+This conditional integration has not been verified on a physical device.
+
+The confirmation sheet now loads a bounded image preview from the same selected
+media model. The preview URL is display-only; a regression test verifies that
+a video cover cannot replace the playable download URL. Individual carousel
+choices preview that child; all-items confirmation previews its first target.
+Current-carousel-position discovery remains pending. Request logging still
 needs a complete redaction audit and correlation IDs. No remote CI or APK run
 has yet completed for this implementation checkpoint. GitHub token access and
 the active CI/APK workflows were verified without exposing the token.

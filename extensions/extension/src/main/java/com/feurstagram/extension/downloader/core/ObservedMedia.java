@@ -19,6 +19,17 @@ public final class ObservedMedia {
     private final String id;
     private final DownloadKind kind;
     private final String url;
+    private String previewUrl;
+
+    /** Display-only image from this same media model; never a download target. */
+    public String previewUrl() { return previewUrl; }
+
+    public ObservedMedia withPreview(String value) {
+        ObservedMedia copy = new ObservedMedia(id, kind, url, mimeType, owner, width,
+                height, sizeBytes, expiresAtEpochMs, hasAudio, children);
+        copy.previewUrl = value;
+        return copy;
+    }
     private final String mimeType;
     private final String owner;
     private final int width;

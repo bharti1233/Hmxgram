@@ -1,6 +1,9 @@
 package com.feurstagram.patches.downloader
 
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.Fingerprint
+import app.morphe.patcher.extensions.InstructionExtensions.instructions
+import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.iface.Method
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
@@ -13,6 +16,11 @@ import com.feurstagram.patches.shared.Constants.EXTENSION
 private const val SETTINGS = "Lcom/feurstagram/extension/Settings;"
 private const val BINDER =
     "Lcom/feurstagram/extension/downloader/DownloaderBinder;"
+
+private object ReelsPagerIdentity : Fingerprint(
+    strings = listOf("android_purge_26_q2_ClipsViewerAdapter_getItemOrNull"),
+    custom = { method, _ -> method.parameterTypes.isEmpty() && method.returnType.startsWith("L") },
+)
 
 /** Adds a model-bound action through the native feed action-row binder. */
 @Suppress("unused")
@@ -61,6 +69,15 @@ val inContextDownloadPatch = bytecodePatch(
         feed.addInstructions(0,
             "invoke-static/range { p3 .. p4 }, " +
                 "$BINDER->bindFeed(Ljava/lang/Object;Ljava/lang/Object;)V")
+        val pager = ReelsPagerIdentity.classDef
+        val constructor = pager.methods.singleOrNull { it.name == "<init>" }
+            ?: throw PatchException("Reels pager constructor is missing or ambiguous")
+        val exits = constructor.instructions.filter { it.opcode == Opcode.RETURN_VOID }
+        if (exits.size != 1) throw PatchException("Reels pager constructor exit changed")
+        constructor.addInstructions(exits.single().location.index,
+            "invoke-static/range { p0 .. p0 }, " +
+                "Lcom/feurstagram/extension/downloader/android/ReelsDownloadBinding;" +
+                "->register(Ljava/lang/Object;)V")
         val settings = mutableClassDefBy(SETTINGS)
         val watcher = settings.methods.singleOrNull {
             it.name == "installHomeTabWatcher" &&

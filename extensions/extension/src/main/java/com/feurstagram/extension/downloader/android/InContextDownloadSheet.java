@@ -92,6 +92,18 @@ public final class InContextDownloadSheet {
             Settings.titleLarge(title);
             card.addView(title);
 
+            android.widget.ImageView preview = new android.widget.ImageView(context);
+            preview.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            preview.setContentDescription("Preview of selected " + InContextAction.title(targets.get(0)));
+            card.addView(preview, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, Settings.dp(context, 180)));
+            TextView previewStatus = new TextView(context);
+            previewStatus.setText("Preview unavailable. Cancel if you cannot identify this media.");
+            Settings.body(previewStatus);
+            card.addView(previewStatus);
+            ConfirmationPreview previewLoader = new ConfirmationPreview();
+            dialog.setOnDismissListener(ignored -> previewLoader.close());
+
             final int count = targets.size();
 
             ScrollView bodyScroll = new ScrollView(context);
@@ -165,6 +177,8 @@ public final class InContextDownloadSheet {
             dialog.setCanceledOnTouchOutside(true);
             Settings.styleWindow(dialog, 0, 0.6f);
             dialog.show();
+            previewLoader.load(preview, targets.get(0), () -> previewStatus.setText(
+                    count == 1 ? "Selected media" : "First of " + count + " selected items"));
         } catch (Throwable failure) {
             // A sheet that cannot be shown must never crash Instagram.
             Toast.makeText(context, "HMX could not open the download action",

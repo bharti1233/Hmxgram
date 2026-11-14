@@ -195,7 +195,7 @@ public final class MediaModelReader {
         boolean hasAudio = hasAudio(model);
         return ObservedMedia.single(idOf(model), kind, url,
                 kind == DownloadKind.VIDEO ? "video/mp4" : "image/jpeg",
-                ownerOf(model), 0, 0, 0L, 0L, hasAudio);
+                ownerOf(model), 0, 0, 0L, 0L, hasAudio).withPreview(imageUrl);
     }
 
     /** The info object of the given kind, or {@code null}. */
