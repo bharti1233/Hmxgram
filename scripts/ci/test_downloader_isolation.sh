@@ -36,7 +36,14 @@ BASE="${HMX_DOWNLOADER_BASE:-a94b5e191117ab9d8e266eaf497059c437761314}"
 # Re-pinned once more in M7: the in-context patch changed from the cross-package
 # params helper to parameterTypes after the first gated build caught the
 # unresolved reference. No other digested file changed.
-PINNED_PROTECTED_DIGEST="81ef3ac358ce97bd8fb57baead19f79d8eb60117287df6612c7863b42d0f31f4"
+#
+# Re-pinned for the settings fix: Settings.java gained the live Downloader
+# ON/OFF row (downloads section) and the Ghost Mode state summary, and the
+# Ghost Mode screen now marks unsupported rows with an explicit UNSUPPORTED
+# label and orders the supported switches first. The switch itself lives in
+# downloader/android/DownloaderSwitch.java, outside this digest by design;
+# every other digested file is byte-identical to the previous pin.
+PINNED_PROTECTED_DIGEST="09ee9a969d18996ae520af0e37507839598e68f7859584143067dafe56d52203"
 CORE_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/core"
 ANDROID_DIR="extensions/extension/src/main/java/com/feurstagram/extension/downloader/android"
 

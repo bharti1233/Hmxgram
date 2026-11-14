@@ -39,8 +39,14 @@ public final class GhostPolicyTest {
                 unsupportedControls();
             }
         });
+        failures += group("supported controls first", new Runnable() {
+            @Override
+            public void run() {
+                supportedFirst();
+            }
+        });
         if (failures == 0) {
-            System.out.println("PASS 3 ghost-policy tests");
+            System.out.println("PASS 4 ghost-policy tests");
         }
         return failures;
     }
@@ -133,6 +139,26 @@ public final class GhostPolicyTest {
             check(!GhostPolicy.isActive(feature, true, true),
                     feature.id() + " is never active, even with both switches on");
         }
+    }
+
+    private static void supportedFirst() {
+        GhostFeature[] ordered = GhostFeature.supportedFirst();
+        check(ordered.length == GhostFeature.all().length,
+                "ordering keeps every control");
+        boolean seenUnsupported = false;
+        int supported = 0;
+        for (GhostFeature feature : ordered) {
+            if (feature.isSupported()) {
+                check(!seenUnsupported,
+                        "a supported control must not appear after an unsupported one");
+                supported++;
+            } else {
+                seenUnsupported = true;
+            }
+        }
+        check(supported == 2, "both supported controls are in the first group");
+        check(ordered[0].isSupported() && ordered[1].isSupported(),
+                "the two supported switches are the first two rows");
     }
 
     private static void check(boolean condition, String message) {

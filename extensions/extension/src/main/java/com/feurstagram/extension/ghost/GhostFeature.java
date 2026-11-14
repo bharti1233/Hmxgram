@@ -185,6 +185,31 @@ public final class GhostFeature {
         return ALL.clone();
     }
 
+    /**
+     * The catalogue with the supported controls first.
+     *
+     * <p>The screen puts the controls that really switch something at the top,
+     * so they are visible without scrolling past the long unsupported
+     * explanations. The relative order inside each group is the catalogue
+     * order.</p>
+     */
+    public static GhostFeature[] supportedFirst() {
+        GhostFeature[] all = all();
+        GhostFeature[] ordered = new GhostFeature[all.length];
+        int index = 0;
+        for (GhostFeature feature : all) {
+            if (feature.isSupported()) {
+                ordered[index++] = feature;
+            }
+        }
+        for (GhostFeature feature : all) {
+            if (!feature.isSupported()) {
+                ordered[index++] = feature;
+            }
+        }
+        return ordered;
+    }
+
     /** The control with this id, or {@code null}. */
     public static GhostFeature byId(String id) {
         if (id == null) {

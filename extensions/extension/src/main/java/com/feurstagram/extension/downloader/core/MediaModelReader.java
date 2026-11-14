@@ -76,10 +76,12 @@ public final class MediaModelReader {
                     observed.add(media);
                 }
             }
-            if (observed.isEmpty()) {
-                return null;
+            if (!observed.isEmpty()) {
+                return ObservedMedia.carousel(idOf(model), observed, ownerOf(model), 0L);
             }
-            return ObservedMedia.carousel(idOf(model), observed, ownerOf(model), 0L);
+            // The list was not a carousel (for example a list of tagged users
+            // on an ordinary photo). Falling through instead of rejecting the
+            // model is what keeps the save action available on those posts.
         }
 
         String imageUrl = urlOf(infoOf(model, IMAGE_INFO));
@@ -176,7 +178,10 @@ public final class MediaModelReader {
             }
             List<Object> models = new ArrayList<Object>();
             for (Object entry : entries) {
-                if (entry != null && entry != model) {
+                // A list of hashtags, ids or other scalars is not a carousel.
+                // Treating it as one used to hide the save action on ordinary
+                // posts that carry any such list.
+                if (entry != null && entry != model && isModelLike(entry)) {
                     models.add(entry);
                 }
             }
@@ -185,6 +190,14 @@ public final class MediaModelReader {
             }
         }
         return new ArrayList<Object>();
+    }
+
+    /** Whether a list entry is an object the reader could inspect as a model. */
+    private static boolean isModelLike(Object entry) {
+        return !(entry instanceof CharSequence
+                || entry instanceof Number
+                || entry instanceof Boolean
+                || entry instanceof Character);
     }
 
     /** The stable id of the model, when it exposes one. */

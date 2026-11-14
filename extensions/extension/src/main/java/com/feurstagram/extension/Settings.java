@@ -34,6 +34,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.feurstagram.extension.downloader.android.DownloaderSwitch;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -632,15 +634,21 @@ public final class Settings {
                         Settings::buildLanding));
         sealGroup(context, content);
 
+        LinearLayout downloads = addSection(context, column, "Downloads");
+        addDownloaderRow(context, downloads);
+        addSectionRow(context, downloads, "download", "Downloader screen",
+                DownloaderSwitch.isEnabled(context)
+                        ? "Queue, progress and saved history"
+                        : "Downloader is off — turn it on above to save media",
+                () -> openDownloader(context));
+        sealGroup(context, downloads);
+
         LinearLayout app = addSection(context, column, "App");
         addSectionRow(context, app, "moon", "Display and popups", displaySummary(),
                 () -> pages.open("Display and popups", "How HMX Insta looks and talks to you.",
                         Settings::buildDisplay));
-        addSectionRow(context, app, "download", "Downloader",
-                "Save the photos, videos and audio you browse",
-                () -> openDownloader(context));
         addSectionRow(context, app, "eye_off", "Ghost Mode",
-                "Privacy controls, off by default",
+                ghostSummary(),
                 () -> openGhostMode(context));
         addSectionRow(context, app, "info", "About HMX Insta+", "HMX Insta+ by HMXPanel",
                 () -> pages.open("About HMX Insta+", "HMX Insta+ by HMXPanel.", Settings::buildAbout));
@@ -845,6 +853,39 @@ public final class Settings {
         String dark = Config.isForceSdr() ? "Force dark on" : "Force dark off";
         String popups = Config.arePopupsHidden() ? "popups hidden" : "popups shown";
         return dark + ", " + popups;
+    }
+
+    /** The state of the Ghost Mode master switch, for the card under App. */
+    private static String ghostSummary() {
+        try {
+            Context app = Config.getAppContext();
+            boolean on = app != null && com.feurstagram.extension.ghost.android.GhostState
+                    .get(app).isMasterOn();
+            return on ? "Master on — supported controls are active"
+                    : "Master off — open to enable the supported controls";
+        } catch (RuntimeException e) {
+            return "Privacy controls, off by default";
+        }
+    }
+
+    /**
+     * The live Downloader switch.
+     *
+     * <p>Unlike the surface rows below, this one takes effect immediately: the
+     * in-context chip, the share target and the downloader screen read the
+     * preference on every use, so no restart and no stale UI is involved. It
+     * never deletes history or files.</p>
+     */
+    private static void addDownloaderRow(Context context, LinearLayout parent) {
+        LinearLayout row = makeRow(context, parent, "Downloader",
+                supportText("downloader_enabled"));
+        ExpressiveSwitch toggle = new ExpressiveSwitch(context);
+        toggle.setChecked(DownloaderSwitch.isEnabled(context));
+        toggle.setContentDescription("Downloader");
+        toggle.setOnCheckedChangeListener((btn, isChecked) ->
+                DownloaderSwitch.setEnabled(context, isChecked));
+        row.addView(toggle);
+        row.setOnClickListener(v -> toggle.toggle());
     }
 
     private static String landingLabel(String value) {
@@ -1337,6 +1378,10 @@ public final class Settings {
     }
 
     private static String supportText(String key) {
+        if (key.equals("downloader_enabled")) {
+            return "Save the photos, videos and audio you browse. Off hides the save chip and "
+                    + "stops new downloads; history and saved files are kept.";
+        }
         if (key.equals("auto_update")) return "Check GitHub for a new version on launch.";
         if (key.equals("block_ads")) return "Block sponsored ads across Instagram.";
         if (key.equals("limit_following_feed")) return "Show only accounts you follow (needs the feed unblocked).";

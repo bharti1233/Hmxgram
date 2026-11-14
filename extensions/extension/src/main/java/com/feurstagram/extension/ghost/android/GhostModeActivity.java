@@ -36,6 +36,10 @@ public final class GhostModeActivity extends Activity {
     private ListView list;
     private RowAdapter adapter;
     private Switch master;
+    private TextView summary;
+
+    /** Supported controls first, so their switches are visible immediately. */
+    private final GhostFeature[] features = GhostFeature.supportedFirst();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,6 +75,8 @@ public final class GhostModeActivity extends Activity {
 
         master = new Switch(this);
         master.setText("Ghost Mode");
+        master.setTextSize(18f);
+        master.setTypeface(Typeface.DEFAULT_BOLD);
         master.setChecked(state.isMasterOn());
         master.setOnCheckedChangeListener(new android.widget.CompoundButton
                 .OnCheckedChangeListener() {
@@ -83,6 +89,12 @@ public final class GhostModeActivity extends Activity {
         });
         root.addView(master);
 
+        summary = new TextView(this);
+        summary.setTextSize(13f);
+        summary.setTextColor(COLOR_UNSUPPORTED);
+        summary.setPadding(0, dp(4), 0, dp(8));
+        root.addView(summary);
+
         list = new ListView(this);
         list.setDividerHeight(dp(1));
         root.addView(list, new LinearLayout.LayoutParams(
@@ -93,6 +105,19 @@ public final class GhostModeActivity extends Activity {
     private void refresh() {
         if (master != null && master.isChecked() != state.isMasterOn()) {
             master.setChecked(state.isMasterOn());
+        }
+        if (summary != null) {
+            int supported = 0;
+            for (GhostFeature feature : features) {
+                if (feature.isSupported()) {
+                    supported++;
+                }
+            }
+            summary.setText(state.isMasterOn()
+                    ? "On — " + supported + " supported control" + (supported == 1 ? "" : "s")
+                            + " can be enabled below. Saved choices are kept when you turn it off."
+                    : "Off — supported controls are inactive. Your saved choices are kept;"
+                            + " turn the master switch on to re-activate them.");
         }
         if (adapter != null) {
             adapter.notifyDataSetChanged();
@@ -108,12 +133,12 @@ public final class GhostModeActivity extends Activity {
 
         @Override
         public int getCount() {
-            return GhostFeature.all().length;
+            return features.length;
         }
 
         @Override
         public Object getItem(int position) {
-            return GhostFeature.all()[position];
+            return features[position];
         }
 
         @Override
@@ -123,7 +148,7 @@ public final class GhostModeActivity extends Activity {
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            final GhostFeature feature = GhostFeature.all()[position];
+            final GhostFeature feature = features[position];
             LinearLayout holder = (LinearLayout) convertView;
             if (holder == null) {
                 holder = buildRow();
@@ -164,7 +189,9 @@ public final class GhostModeActivity extends Activity {
                 explanation.setTextColor(COLOR_UNSUPPORTED);
                 toggle.setVisibility(View.VISIBLE);
                 toggle.setEnabled(state.isMasterOn());
-                toggle.setChecked(state.isFeatureOn(feature));
+                boolean on = state.isFeatureOn(feature);
+                toggle.setChecked(on);
+                toggle.setText(on ? "On" : "Off");
                 toggle.setOnCheckedChangeListener(
                         new android.widget.CompoundButton.OnCheckedChangeListener() {
                             @Override
@@ -176,7 +203,9 @@ public final class GhostModeActivity extends Activity {
                             }
                         });
             } else {
-                explanation.setText(feature.unsupportedReason());
+                // No switch and an explicit marker: the row must never look
+                // like a control that is merely switched off.
+                explanation.setText("UNSUPPORTED — " + feature.unsupportedReason());
                 explanation.setTextColor(COLOR_UNSUPPORTED);
                 toggle.setVisibility(View.GONE);
             }

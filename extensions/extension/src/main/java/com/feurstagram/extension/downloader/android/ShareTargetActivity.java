@@ -88,6 +88,12 @@ public final class ShareTargetActivity extends Activity {
             return;
         }
         handled = true;
+        if (!DownloaderSwitch.isEnabled(this)) {
+            // The switch is checked at the entry point, not only in the chip:
+            // an external share must not start a download while it is off.
+            showMessage("The HMX downloader is off. Turn it on in HMX Insta settings.");
+            return;
+        }
         final List<ShareIntentParser.Payload> payloads;
         try {
             payloads = ShareIntentParser.parse(this, intent);
@@ -137,6 +143,12 @@ public final class ShareTargetActivity extends Activity {
         final ExecutorService executor = importer;
         if (executor == null) {
             showMessage("HMX Insta is not ready to receive shares");
+            return;
+        }
+        if (!DownloaderSwitch.isEnabled(this)) {
+            // The switch may have been turned off while the notification
+            // permission dialog was up.
+            showMessage("The HMX downloader is off. Turn it on in HMX Insta settings.");
             return;
         }
         if (GhostState.isActiveSafely(app, GhostFeature.CONFIRM_BEFORE_SAVING)) {

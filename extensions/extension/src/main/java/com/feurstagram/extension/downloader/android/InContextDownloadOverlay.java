@@ -1,6 +1,7 @@
 package com.feurstagram.extension.downloader.android;
 
 import android.app.Activity;
+import android.app.Application;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.SharedPreferences;
@@ -70,6 +71,9 @@ public final class InContextDownloadOverlay {
     /** Tag that makes the install idempotent for a window. */
     private static final Object VIEW_TAG = new Object();
 
+    /** Whether the activity lifecycle listener was registered for this process. */
+    private static volatile boolean callbacksRegistered;
+
     /** Every 250 ms until the tab bar is attached to its window. */
     private static final int ATTACH_ATTEMPTS = 20;
 
@@ -88,6 +92,13 @@ public final class InContextDownloadOverlay {
     /**
      * Installs the chip once the tab bar is attached to Instagram's window.
      *
+     * <p>The tab bar only exists on the main window, so installing from it
+     * alone put the chip on the feed and nowhere else: Reels, Stories and post
+     * detail screens are separate activities. The first install therefore also
+     * registers an activity lifecycle listener, which offers the same chip to
+     * every Instagram window. That is what makes the action reach the surfaces
+     * this feature advertises.
+     *
      * <p>Called by the patch from the HMX tab-bar watcher, so a stock build
      * (without the M7 patch) never reaches this class. Installing an overlay
      * must never be able to crash Instagram: every failure is logged and the
@@ -97,6 +108,7 @@ public final class InContextDownloadOverlay {
         if (tabBar == null) {
             return;
         }
+        registerActivityCallbacks(tabBar);
         try {
             tabBar.post(new Runnable() {
                 @Override
@@ -110,6 +122,134 @@ public final class InContextDownloadOverlay {
             });
         } catch (Throwable failure) {
             Log.w(TAG, "could not schedule the in-context download action", failure);
+        }
+    }
+
+    /** Registers one lifecycle listener per process. */
+    private static void registerActivityCallbacks(ViewGroup tabBar) {
+        if (callbacksRegistered) {
+            return;
+        }
+        try {
+            Context application = tabBar.getContext().getApplicationContext();
+            if (application instanceof Application) {
+                ((Application) application)
+                        .registerActivityLifecycleCallbacks(new ActivityChipInstaller());
+                callbacksRegistered = true;
+            }
+        } catch (Throwable failure) {
+            Log.w(TAG, "could not watch Instagram activities for the download action", failure);
+        }
+    }
+
+    /**
+     * Offers the chip to every Instagram window.
+     *
+     * <p>The listener only reads the activity's decor view and posts the same
+     * attach path the main window uses. It does not look at the screen, does
+     * not touch Instagram's views and does not need the tab bar.
+     */
+    private static final class ActivityChipInstaller
+            implements Application.ActivityLifecycleCallbacks {
+
+        @Override
+        public void onActivityResumed(Activity activity) {
+            if (activity == null || isHmxScreen(activity)) {
+                return;
+            }
+            try {
+                View decor = activity.getWindow() == null
+                        ? null : activity.getWindow().getDecorView();
+                if (decor instanceof FrameLayout) {
+                    attachDecor((FrameLayout) decor, activity, 0);
+                }
+            } catch (Throwable failure) {
+                Log.w(TAG, "could not attach the download action to a window", failure);
+            }
+        }
+
+        @Override
+        public void onActivityCreated(Activity activity, android.os.Bundle state) {
+        }
+
+        @Override
+        public void onActivityStarted(Activity activity) {
+        }
+
+        @Override
+        public void onActivityPaused(Activity activity) {
+        }
+
+        @Override
+        public void onActivityStopped(Activity activity) {
+        }
+
+        @Override
+        public void onActivitySaveInstanceState(Activity activity, android.os.Bundle state) {
+        }
+
+        @Override
+        public void onActivityDestroyed(Activity activity) {
+        }
+    }
+
+    /** Whether the activity is one of the HMX screens, which never show the chip. */
+    private static boolean isHmxScreen(Activity activity) {
+        String name = activity.getClass().getName();
+        return name.equals(DownloaderActivity.class.getName())
+                || name.equals(ShareTargetActivity.class.getName())
+                || name.equals("com.feurstagram.extension.ghost.android.GhostModeActivity");
+    }
+
+    /** Attaches the chip to an activity's decor view once that window is ready. */
+    private static void attachDecor(final FrameLayout decor, final Activity activity,
+            final int attempt) {
+        try {
+            // The chip is attached even while the Downloader switch is off: it
+            // stays hidden and appears the moment the switch is turned on,
+            // without waiting for the next activity to start.
+            if (decor.findViewWithTag(VIEW_TAG) != null) {
+                return;
+            }
+            boolean attached = decor.isAttachedToWindow();
+            boolean ready = attached && decor.getWidth() > 0;
+            OverlayLifecyclePolicy.Decision decision = OverlayLifecyclePolicy.decide(
+                    attached, ready, activity != null, attempt, ATTACH_ATTEMPTS);
+            if (decision == OverlayLifecyclePolicy.Decision.WAIT) {
+                retryDecor(decor, activity, attempt);
+                return;
+            }
+            if (decision == OverlayLifecyclePolicy.Decision.ABANDON) {
+                return;
+            }
+            Chip chip = new Chip(new ContextThemeWrapper(activity, CHIP_THEME));
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            params.gravity = Gravity.TOP | Gravity.START;
+            params.leftMargin = chip.savedX();
+            params.topMargin = chip.savedY();
+            decor.addView(chip, params);
+            chip.begin();
+        } catch (Throwable failure) {
+            Log.w(TAG, "the download action could not be attached to a window", failure);
+        }
+    }
+
+    private static void retryDecor(final FrameLayout decor, final Activity activity,
+            final int attempt) {
+        if (attempt >= ATTACH_ATTEMPTS) {
+            return;
+        }
+        try {
+            decor.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    attachDecor(decor, activity, attempt + 1);
+                }
+            }, 250L);
+        } catch (RuntimeException ignored) {
+            // The window may already be gone.
         }
     }
 
@@ -257,13 +397,21 @@ public final class InContextDownloadOverlay {
 
         /** Re-evaluates whether the action may be offered right now. */
         private void refresh() {
+            // The Downloader switch is read live: turning it off hides the chip
+            // within one tick, without a restart and without touching history.
+            boolean allowed = DownloaderSwitch.isEnabled(getContext());
             InContextAction.Surface surface = surface();
             ObservedMedia media = MediaObserver.latest();
             long ageMs = MediaObserver.latestAgeMs();
-            setVisibility(InContextAction.canOffer(media, ageMs, surface) ? VISIBLE : GONE);
+            setVisibility(allowed && InContextAction.canOffer(media, ageMs, surface)
+                    ? VISIBLE : GONE);
         }
 
         private void openSheet() {
+            if (!DownloaderSwitch.isEnabled(getContext())) {
+                refresh();
+                return;
+            }
             ObservedMedia media = MediaObserver.latest();
             long ageMs = MediaObserver.latestAgeMs();
             InContextAction.Surface surface = surface();

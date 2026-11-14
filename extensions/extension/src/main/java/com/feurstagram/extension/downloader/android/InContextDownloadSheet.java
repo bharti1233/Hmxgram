@@ -40,6 +40,12 @@ final class InContextDownloadSheet {
         if (context == null || media == null) {
             return;
         }
+        if (!DownloaderSwitch.isEnabled(context)) {
+            Toast.makeText(context,
+                    "The HMX downloader is off. Turn it on in HMX Insta settings.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
         try {
             final Dialog dialog = new Dialog(context);
             dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -120,6 +126,12 @@ final class InContextDownloadSheet {
 
     /** Queues the confirmed items through the existing engine. */
     private static void enqueue(Context context, ObservedMedia media) {
+        if (!DownloaderSwitch.isEnabled(context)) {
+            Toast.makeText(context,
+                    "The HMX downloader is off. Turn it on in HMX Insta settings.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
         int added = 0;
         int duplicates = 0;
         int failed = 0;

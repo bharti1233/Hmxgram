@@ -59,6 +59,7 @@ public final class DownloaderActivity extends Activity {
     private HmxDownloader downloader;
     private ListView list;
     private TextView empty;
+    private TextView banner;
     private Button reveal;
     private RowAdapter adapter;
     private boolean resumed;
@@ -144,6 +145,15 @@ public final class DownloaderActivity extends Activity {
         subtitle.setTextColor(COLOR_MUTED);
         root.addView(subtitle);
 
+        banner = new TextView(this);
+        banner.setText("Downloader is off. Turn it on in HMX Insta settings → Downloads."
+                + " Your history and saved files are kept.");
+        banner.setTextSize(13f);
+        banner.setTextColor(COLOR_BAD);
+        banner.setPadding(0, dp(8), 0, dp(8));
+        banner.setVisibility(View.GONE);
+        root.addView(banner);
+
         list = new ListView(this);
         list.setDividerHeight(dp(1));
         root.addView(list, new LinearLayout.LayoutParams(
@@ -197,6 +207,10 @@ public final class DownloaderActivity extends Activity {
     }
 
     private void refresh() {
+        if (banner != null) {
+            banner.setVisibility(DownloaderSwitch.isEnabled(getApplicationContext())
+                    ? View.GONE : View.VISIBLE);
+        }
         List<ObservedMedia> seen = MediaObserver.observed();
         List<DownloaderRow> current = downloader.rows();
         if (historyHidden() && !historyRevealed) {
@@ -490,6 +504,10 @@ public final class DownloaderActivity extends Activity {
      * engine refuses a container as it is.
      */
     private void onDownloadObserved(ObservedMedia media) {
+        if (!DownloaderSwitch.isEnabled(getApplicationContext())) {
+            act("Downloader is off. Turn it on in HMX Insta settings → Downloads.");
+            return;
+        }
         if (media.kind().isContainer()) {
             int added = 0;
             for (ObservedMedia child : media.children()) {
@@ -520,7 +538,12 @@ public final class DownloaderActivity extends Activity {
         }
     }
 
-    private void onRetry(DownloaderRow row) {        if (downloader.retry(row.id())) {
+    private void onRetry(DownloaderRow row) {
+        if (!DownloaderSwitch.isEnabled(getApplicationContext())) {
+            act("Downloader is off. Turn it on in HMX Insta settings → Downloads.");
+            return;
+        }
+        if (downloader.retry(row.id())) {
             act("Retrying");
         } else {
             act("This download cannot be retried");

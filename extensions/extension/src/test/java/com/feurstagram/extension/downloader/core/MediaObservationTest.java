@@ -62,8 +62,14 @@ public final class MediaObservationTest {
                 registryBounds();
             }
         });
+        failures += group("non-media list fallback", new Runnable() {
+            @Override
+            public void run() {
+                nonMediaListFallback();
+            }
+        });
         if (failures == 0) {
-            System.out.println("PASS 6 downloader-observation tests");
+            System.out.println("PASS 7 downloader-observation tests");
         }
         return failures;
     }
@@ -267,6 +273,63 @@ public final class MediaObservationTest {
         } catch (IllegalArgumentException expected) {
             // Expected.
         }
+    }
+
+    /** A photo model that also exposes a list of plain tags or ids. */
+    public static final class TaggedMedia {
+        private final ImageInfo image;
+        private final List<String> tags;
+        private final List<Long> ids;
+
+        TaggedMedia(ImageInfo image, List<String> tags, List<Long> ids) {
+            this.image = image;
+            this.tags = tags;
+            this.ids = ids;
+        }
+
+        public ImageInfo zz1() {
+            return image;
+        }
+
+        public List<String> zz2() {
+            return tags;
+        }
+
+        public List<Long> zz7() {
+            return ids;
+        }
+
+        public String zz4() {
+            return "777";
+        }
+    }
+
+    /**
+     * A post with a non-empty list that is not a carousel must still be read as
+     * its own media. This is the regression for a real Instagram shape: an
+     * ordinary photo with tagged accounts, coauthors or a hashtag list.
+     */
+    private static void nonMediaListFallback() {
+        TaggedMedia tagged = new TaggedMedia(
+                new ImageInfo("https://cdn.example/tagged.jpg", 1080),
+                Arrays.asList("alice", "bob"), Arrays.asList(1L, 2L));
+        ObservedMedia media = MediaModelReader.read(tagged);
+        check(media != null, "a photo with a tag list is still read");
+        check(DownloadKind.PHOTO == media.kind(), "the tag list is not a carousel");
+        check("https://cdn.example/tagged.jpg".equals(media.url()),
+                "the photo URL is read");
+
+        // A list of child models that carry no media is not a carousel either.
+        FakeMedia emptyChild = new FakeMedia(null, null, null, "child", false);
+        FakeMedia parent = new FakeMedia(
+                new ImageInfo("https://cdn.example/parent.jpg", 1080), null,
+                Arrays.asList(emptyChild), "888", false);
+        ObservedMedia fallback = MediaModelReader.read(parent);
+        check(fallback != null, "a photo with an unreadable child list is still read");
+        check(DownloadKind.PHOTO == fallback.kind(),
+                "an unreadable child list does not turn a photo into a carousel");
+        check("https://cdn.example/parent.jpg".equals(fallback.url()),
+                "the parent photo URL is read");
     }
 
     private static void check(boolean condition, String message) {
