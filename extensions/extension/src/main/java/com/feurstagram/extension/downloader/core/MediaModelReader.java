@@ -129,6 +129,16 @@ public final class MediaModelReader {
                 && className.equals("com.instagram.feed.media.Media");
     }
 
+    /** Structural wrapper check shared by native bindings. No accessors are invoked. */
+    public static boolean hasSingleMediaField(Class<?> type) {
+        int count = 0;
+        for (Field field : type.getFields()) {
+            if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())
+                    && isMediaClass(field.getType().getName())) count++;
+        }
+        return count == 1;
+    }
+
     /**
      * The media owned by a wrapper model, or {@code null}.
      *

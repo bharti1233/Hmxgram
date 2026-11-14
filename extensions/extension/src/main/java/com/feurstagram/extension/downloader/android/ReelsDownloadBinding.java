@@ -38,12 +38,7 @@ public final class ReelsDownloadBinding {
                         for (Method method : pagerOwner.getClass().getMethods()) {
                             if (method.getParameterTypes().length != 0
                                     || Modifier.isStatic(method.getModifiers())) continue;
-                            int fields = 0;
-                            for (Field field : method.getReturnType().getFields()) {
-                                if (!Modifier.isStatic(field.getModifiers()) && field.getType().getName()
-                                        .equals("com.instagram.feed.media.Media")) fields++;
-                            }
-                            if (fields == 1) {
+                            if (MediaModelReader.hasSingleMediaField(method.getReturnType())) {
                                 if (getter != null) return; // ambiguous current-page reader
                                 getter = method;
                             }
