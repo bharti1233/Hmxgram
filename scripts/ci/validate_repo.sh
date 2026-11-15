@@ -38,7 +38,16 @@ for f in \
   scripts/branding/apply_launcher_branding.py \
   docs/HMX_INSTA_REBRANDING_AUDIT.md \
   docs/HMX_INSTA_BRANDING_GUIDE.md \
-  docs/HMX_INSTA_UPDATER.md
+  docs/HMX_INSTA_UPDATER.md \
+  docs/HMX_INSTA_BASELINE_FEATURE_INVENTORY.md \
+  scripts/ci/verify_protected_methods.py \
+  scripts/ci/test_protected_methods.sh \
+  scripts/ci/test_downloader_logic.sh \
+  scripts/ci/validate_features.sh \
+  scripts/ci/test_downloader_isolation.sh \
+  docs/HMX_INSTA_M1_DOWNLOADER_CORE.md \
+  docs/HMX_INSTA_M2_ANDROID_SHELL.md \
+  docs/HMX_INSTA_M2_DEVICE_CHECKLIST.md
  do
   if [ -f "$f" ]; then note "ok: $f"; else bad "missing required file: $f"; fi
 done
@@ -91,7 +100,7 @@ else
 fi
 
 note "== Executable modes =="
-for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
+for f in gradlew build.sh scripts/ci/validate_input_apk.sh scripts/ci/validate_bundle.sh scripts/ci/validate_standalone_apk.sh scripts/ci/install_smoke_test.sh scripts/ci/test_universal_packaging.sh scripts/ci/verify_patch_report.py scripts/ci/test_patch_report.sh scripts/ci/validate_branding.sh scripts/ci/verify_protected_methods.py scripts/ci/test_protected_methods.sh scripts/ci/test_downloader_logic.sh scripts/ci/validate_features.sh scripts/ci/test_downloader_isolation.sh scripts/branding/pngtool.py scripts/branding/generate_launcher_icons.py scripts/branding/apply_launcher_branding.py; do
   mode="$(git ls-files -s "$f" | awk '{print $1}')"
   if [ "$mode" = "100755" ]; then note "ok: $f is executable in git"; else bad "$f must be mode 100755 (found $mode)"; fi
 done
@@ -173,7 +182,72 @@ validate_standalone_apk.sh
 install_smoke_test.sh
 EXPECTED_INSTAGRAM_VERSION_CODE
 run_install_test
+verify_protected_methods.py
+hmx-baseline-454-verified
+protected-methods-report.json
 NEEDLES
+
+if grep -qF 'scripts/ci/test_protected_methods.sh' .github/workflows/ci.yml; then
+  note "ok: ci.yml runs the protected-method verifier self-test"
+else
+  bad "ci.yml must run scripts/ci/test_protected_methods.sh"
+fi
+
+for needle in \
+  'scripts/ci/test_downloader_logic.sh' \
+  'scripts/ci/validate_features.sh' \
+  'scripts/ci/test_downloader_isolation.sh'
+do
+  if grep -qF "$needle" .github/workflows/ci.yml; then
+    note "ok: ci.yml runs $needle"
+  else
+    bad "ci.yml must run $needle"
+  fi
+done
+
+if grep -qF 'fetch-depth: 0' .github/workflows/ci.yml; then
+  note "ok: ci.yml fetches history for the downloader baseline check"
+else
+  bad "ci.yml must use actions/checkout fetch-depth: 0 for test_downloader_isolation.sh"
+fi
+
+# The build ref allowlist must stay exact: main plus the v2 milestone branch.
+if grep -qF "github.ref == 'refs/heads/main'" .github/workflows/apk.yml && \
+   grep -qF "github.ref == 'refs/heads/feature/hmx-downloader-ghost-mode-v2'" .github/workflows/apk.yml; then
+  note "ok: apk.yml build refs are the exact main + v2 allowlist"
+else
+  bad "apk.yml must allow exactly refs/heads/main and refs/heads/feature/hmx-downloader-ghost-mode-v2"
+fi
+if grep -qE "refs/heads/(feature|release)/\*|refs/heads/feature/\*\*" .github/workflows/apk.yml; then
+  bad "apk.yml build ref guard must not use a wildcard"
+else
+  note "ok: apk.yml build ref guard has no wildcard"
+fi
+
+# The downloader share target is a default-off patch. The build must only be
+# able to enable it through one explicit, reviewed switch, and the patch report
+# must then have to list it.
+if grep -qF 'enable_downloader:' .github/workflows/apk.yml && \
+   grep -qF 'args+=(--downloader)' .github/workflows/apk.yml && \
+   grep -qF 'EXPECTED_PATCHES_WITH_DOWNLOADER' .github/workflows/apk.yml && \
+   grep -qF -- '--downloader) ENABLE_DOWNLOADER=1 ;;' build.sh && \
+   grep -qF 'ARGS+=(-e "Downloader share target" -e "Downloader media observer")' build.sh && \
+   grep -qF 'ARGS+=(-e "Ghost Mode settings")' build.sh && \
+   grep -qF 'enable_ghost:' .github/workflows/apk.yml; then
+  note "ok: the downloader share target is only reachable through the explicit downloader build switch"
+else
+  bad "the downloader share target must only be enabled through the explicit downloader build switch"
+fi
+
+if grep -qF 'enable_incontext:' .github/workflows/apk.yml && \
+   grep -qF 'args+=(--incontext)' .github/workflows/apk.yml && \
+   grep -qF 'EXPECTED_PATCHES_WITH_INCONTEXT' .github/workflows/apk.yml && \
+   grep -qF -- '--incontext) ENABLE_INCONTEXT=1 ;;' build.sh && \
+   grep -qF 'ARGS+=(-e "In-context download actions")' build.sh; then
+  note "ok: the in-context action is only reachable through its explicit build switch"
+else
+  bad "the in-context action must only be enabled through the explicit in-context build switch"
+fi
 
 if grep -qF 'bash "$VALIDATE_INPUT"' build.sh && \
    grep -qF 'bash "$VALIDATE_BUNDLE"' build.sh && \

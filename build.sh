@@ -3,7 +3,7 @@
 # Feurstagram build pipeline.
 #
 #   ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug]
-#                [--allow-signature-bypass]
+#                [--allow-signature-bypass] [--downloader] [--incontext]
 #
 # Builds the patch bundle (.mpp) from the Gradle project, then applies it to the
 # given Instagram APK with the local Morphe CLI, producing ./feurstagram.apk.
@@ -15,6 +15,23 @@
 #               keep the "Signature check bypass" patch. The patch is DISABLED
 #               by default; enable it only for throwaway-signed test builds.
 #               It is refused when signing with the release keystore.
+#   --downloader
+#               apply the downloader's own patches: the "Downloader share
+#               target" patch (DISABLED by default because it declares an
+#               exported activity) and the "Downloader media observer" patch
+#               (DISABLED by default because it reads the media the user
+#               browses). Enable them only for a reviewed build that must
+#               carry the downloader (the device test). The caller is
+#               expected to assert both patches in the patch report.
+#   --ghost
+#               apply the "Ghost Mode settings" patch (DISABLED by default,
+#               because it changes what the app shows). Enable it only for a
+#               reviewed build that must carry the privacy screen.
+#   --incontext
+#               apply the "In-context download actions" patch (DISABLED by
+#               default): the HMX download chip over feed, reels and story
+#               media. It implies --downloader, because the chip queues through
+#               the downloader's existing engine and service.
 #
 # Split bundles: an APKMirror .apkm (or .xapk/.apks) is a zip of base.apk plus
 # split APKs. The Morphe CLI patches one APK, so those are merged into a single
@@ -94,18 +111,24 @@ CLONE=0
 INSTALL=0
 DEBUG=0
 ALLOW_SIGNATURE_BYPASS=0
+ENABLE_DOWNLOADER=0
+ENABLE_GHOST=0
+ENABLE_INCONTEXT=0
 for arg in "$@"; do
     case "$arg" in
         --clone) CLONE=1 ;;
         --install) INSTALL=1 ;;
         --debug) DEBUG=1 ;;
         --allow-signature-bypass) ALLOW_SIGNATURE_BYPASS=1 ;;
+        --downloader) ENABLE_DOWNLOADER=1 ;;
+        --ghost) ENABLE_GHOST=1 ;;
+        --incontext) ENABLE_INCONTEXT=1 ;;
         *) APK="$arg" ;;
     esac
 done
 
 if [ -z "$APK" ] || [ ! -f "$APK" ]; then
-    echo "usage: ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug] [--allow-signature-bypass]" >&2
+    echo "usage: ./build.sh <instagram.apk|.apkm|.xapk|.apks> [--clone] [--install] [--debug] [--allow-signature-bypass] [--downloader] [--ghost] [--incontext]" >&2
     exit 1
 fi
 if [ -z "$CLI" ]; then
@@ -219,6 +242,17 @@ mkdir -p "$DIR/build"
 ARGS=(-jar "$CLI" patch -p "$MPP" -f -r "$REPORT" -o "$OUT")
 [ "$CLONE" -eq 1 ] && ARGS+=(-e "Clone")
 [ "$DEBUG" -eq 1 ] && ARGS+=(-e "Debug bridge")
+# The downloader share target is default-off in the patch source: it declares
+# an exported activity, so it is only applied when the caller explicitly asks
+# for it. The patch report then has to list it, which verify_patch_report.py
+# enforces through EXPECTED_PATCHES.
+#
+# The in-context action sits on top of that engine: it queues through the same
+# service, so enabling it implies the downloader patches.
+[ "$ENABLE_INCONTEXT" -eq 1 ] && ENABLE_DOWNLOADER=1
+[ "$ENABLE_DOWNLOADER" -eq 1 ] && ARGS+=(-e "Downloader share target" -e "Downloader media observer")
+[ "$ENABLE_INCONTEXT" -eq 1 ] && ARGS+=(-e "In-context download actions")
+[ "$ENABLE_GHOST" -eq 1 ] && ARGS+=(-e "Ghost Mode settings")
 
 # With a keystore password, defer signing to apksigner (the CLI can't read the
 # PKCS12 keystore); otherwise let the CLI sign with a throwaway key for testing.

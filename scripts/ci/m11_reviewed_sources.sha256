@@ -1,0 +1,3 @@
+f6012448cec770f0260b0755cc1c345dbf81fae92ab92ac8ed171ec025fc3040  patches/src/main/kotlin/com/feurstagram/patches/downloader/InContextDownloadPatch.kt
+094bb69393391e34d42eab4c1fd0d7abdf82253be8d5587212e793410cddc73e  scripts/ci/protected_methods.json
+7d68d448edec8fa83a8aa305d5b619c56efcc814b3271fc03bded6607428e4b2  scripts/ci/verify_protected_methods.py

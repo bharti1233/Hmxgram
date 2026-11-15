@@ -100,20 +100,20 @@ if grep -rn '"Feurstagram\|"FeurStagram' "$EXTENSION" >/dev/null 2>&1; then
 else
     note "ok: no user-facing FeurStagram string is left in the extension"
 fi
-if grep -q 'title.setText("HMX Insta")' "$EXTENSION/Settings.java"; then
-    note "ok: the settings page is titled HMX Insta"
+if grep -q 'title.setText("HMX Insta+")' "$EXTENSION/Settings.java"; then
+    note "ok: the settings page is titled HMX Insta+"
 else
-    bad "the settings page must be titled HMX Insta"
+    bad "the settings page must be titled HMX Insta+"
 fi
 if grep -q 'buildAbout' "$EXTENSION/Settings.java"; then
     note "ok: the About page is present"
 else
     bad "the About page is missing"
 fi
-if grep -q 'APP_NAME = "HMX Insta"' patches/src/main/kotlin/com/feurstagram/patches/branding/HmxInstaAppNamePatch.kt; then
-    note "ok: the app-name patch renames the app to HMX Insta"
+if grep -q 'APP_NAME = "HMX Insta+"' patches/src/main/kotlin/com/feurstagram/patches/branding/HmxInstaAppNamePatch.kt; then
+    note "ok: the app-name patch renames the app to HMX Insta+"
 else
-    bad "the app-name patch must rename the app to HMX Insta"
+    bad "the app-name patch must rename the app to HMX Insta+"
 fi
 
 if [ "$fail" -ne 0 ]; then

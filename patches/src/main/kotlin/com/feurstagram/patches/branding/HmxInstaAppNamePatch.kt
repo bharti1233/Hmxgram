@@ -7,7 +7,7 @@ import com.feurstagram.patches.shared.Constants.COMPATIBILITY_INSTAGRAM
 import org.w3c.dom.Element
 
 /** The product name shown on the launcher and in the app information screen. */
-private const val APP_NAME = "HMX Insta"
+private const val APP_NAME = "HMX Insta+"
 
 /** The themed-icon (monochrome) layer, bundled in the patch jar. */
 private const val MONOCHROME_VECTOR = "branding/ig_launcher_monochrome.xml"
@@ -25,7 +25,7 @@ private val MONOCHROME_CANDIDATES = listOf(
 )
 
 /**
- * Shows the patched app as HMX Insta instead of Instagram.
+ * Shows the patched app as HMX Insta+ instead of Instagram.
  *
  * The launcher reads the label from the manifest's `android:label`, which points
  * at a string resource; changing that one string re-labels every surface that
@@ -41,7 +41,7 @@ private val MONOCHROME_CANDIDATES = listOf(
 @Suppress("unused")
 val hmxInstaAppNamePatch = resourcePatch(
     name = "HMX Insta app name",
-    description = "Shows the app as HMX Insta on the launcher, in the app information screen " +
+    description = "Shows the app as HMX Insta+ on the launcher, in the app information screen " +
         "and in the themed icon.",
     default = true,
 ) {
