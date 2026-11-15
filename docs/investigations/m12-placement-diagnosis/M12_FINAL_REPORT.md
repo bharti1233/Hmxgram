@@ -32,11 +32,11 @@ The decisive next action is not a code change. It is the documented capture: bui
 | Offline repository, feature, isolation gates | **Pass** | no protected file or patch source changed |
 | Protected-method self-test + manifest pin | **Pass** | the verifier still rejects tampering; 12 surfaces pinned |
 | Full extension type-check (`javac` + `android.jar`) | **Pass** | the M12 sources compile with `-Werror` |
-| Instrumented APK | **Not built** | no APK exists from this phase |
-| APK signature / package / version / patch report / ZIP | **Not run** | nothing to verify |
+| Instrumented APK | **Built** — run `43684131825`, commit `27b6653` | throwaway-signed, 18 patches, SHA-256 `f3f1577…` |
+| APK signature / package / version / patch report / ZIP | **Pass** | verified independently on the downloaded APK |
 | Device logcat on OPPO A38 / Android 15 (Reels) | **Performed** (M11.1 build) | exact branch `ANCHOR_TYPE`, proven by log + class hierarchy |
 | Device logcat on OPPO A38 / Android 15 (Feed) | **Not captured** | Feed remains `NOT CLASSIFIED` |
-| Device test of the fix | **Not performed** | no APK from this branch has run on a phone |
+| Device test of the fix | **Not performed** | the APK exists and is installable, but has not run on a phone |
 | Screenshots | **Inherited from M11.1 only** | they prove absence, not cause |
 
 No statement below is presented as device-verified. Where a likely cause is named, it is labelled as a hypothesis with the evidence that would settle it.
@@ -226,7 +226,7 @@ The reviewed patch file `InContextDownloadPatch.kt` is **byte-identical**, and `
 5. **The blocker rule is an inference.** `PlacementProbe` decides "wrapper vs control" from clickability, background presence and type. A transparent `View` subclass that is clickable would be treated as a blocker; a decorated wrapper that is not clickable would be treated as transparent. The capture's `SLOT_BLOCKER` index is what resolves this.
 6. **Two coverage gaps remain.** Reels pager/getter discovery and Feed holder-field discovery are Android-bound reflection and have no JVM test. `test_native_feed_hook.py` proves the patch anchor, not the holder shape.
 7. **The type-check is not a build.** `javac` + `android.jar` proves the sources compile; it does not run the Morphe plugin, resource linking, dexing, signing or packaging. A green local check is not a green Gradle build.
-8. **No APK-level verification was possible.** Signature, package, version, patch report, ZIP integrity and protected-method comparison are documented as an acceptance checklist, not executed.
+8. **APK-level verification is done for commit `27b6653`.** Run `43684131825` built the APK; signature, package, version, patch report, ZIP integrity and the protected-method comparison against the pinned baseline all pass (see `M12_PHASE6_VERIFICATION.md` §3c). Device verification is still outstanding.
 9. **Policy adoption criteria are unmet.** The policy may not replace M11 placement until the capture shows agreement or explains every disagreement.
 
 ## 8. Next steps, in order

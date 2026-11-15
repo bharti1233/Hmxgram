@@ -66,18 +66,43 @@ The two supplied captures were analysed in `M12_DEVICE_EVIDENCE_ANALYSIS.md`:
 
 This is device evidence about the branch, not a visible verification of the fix. The fix has not been on a device.
 
+## 3c. Gated APK build (performed)
+
+Built by `.github/workflows/apk.yml` through the `apk-build` environment after
+the branch was pushed; no local build was used.
+
+| Item | Value |
+|---|---|
+| Commit | `27b6653` |
+| Workflow run | `43684131825` (attempt 1, success) |
+| Base input | `454.0.0.54.77`, `base_apk_kind=apkm` |
+| Signing | throwaway test key, `SIGNATURE_BYPASS=false` |
+| Patches applied | 18, including `In-context download actions` and `Ghost Mode settings` |
+| APK SHA-256 | `f3f15772503cb580cb78951186c49e4720a52e7e9304985592ee0d76e14f965c` |
+| Signer cert SHA-256 | `4d16945404feb9b736d2a266b85b6d0226e39c39f96bb02d50bb13b5df559cb8` |
+| Published prerelease | `debug-test-43684131825-1` in the private input repo |
+
+Independent checks on the downloaded APK:
+
+| Check | Result |
+|---|---|
+| `apksigner verify --print-certs` | **PASS** — v2 scheme, one signer, cert SHA-256 matches the build |
+| `aapt dump badging` | **PASS** — `com.instagram.android`, `454.0.0.54.77` (`386014712`) |
+| `unzip -t` | **PASS** — 18 365 entries, no errors |
+| `sha256sum` | **PASS** — matches `f3f1577…` |
+| `validate_standalone_apk.sh --stage final` | **PASS** — merged resources, arm64, no split metadata, zipalign |
+| `verify_patch_report.py` | **PASS** — 18 applied, 0 failed, no expected patch missing |
+| `verify_protected_methods.py` vs pinned baseline (`6a327db6…`) | **PASS** — 12 surfaces, 2 recorded |
+| Built dex vs pinned baseline | `ClipsViewerActionBar` is `RelativeLayout` and byte-identical (normalised) in both |
+| Built dex contains the fix | `PlacementPolicy$Container`, `ANCHOR_TYPE`, `BAR_CHILD_`, `layoutParams` present |
+
 ## 4. Not performed
 
 | Item | Reason |
 |---|---|
-| Device capture of the fix | the supplied logs predate the fix and use the M11.1 schema |
-| `gradlew :patches:build` / `.mpe` bundle | requires Gradle and the Android SDK; user asked for no local builds |
-| APK build | same |
-| APK signature check | no APK exists |
-| APK package / version check | no APK exists |
-| APK ZIP integrity | no APK exists |
-| APK patch report verification | no APK exists |
-| APK protected-method comparison | no APK exists and it needs the pinned baseline APK |
+| Device capture of the fix | not yet run on the phone; the supplied logs predate the fix and use the M11.1 schema |
+| Device screenshot of the control | requires the test APK installed on the OPPO A38 |
+| `gradlew :patches:build` / `.mpe` bundle | not needed; the gated workflow builds the plugin |
 
 ## 5. Gated build readiness
 

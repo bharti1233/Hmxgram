@@ -32,7 +32,7 @@ M12 is diagnosis-first. It adds **observation**, not placement changes. The M11 
 | Full extension type-check (`javac` + `android.jar`) | Pass |
 | Device capture (Reels) | **Performed** on OPPO A38 / Android 15, M11.1 build. Exact branch identified: `ANCHOR_TYPE`. |
 | Device capture (Feed) | **Not captured.** Feed is `NOT CLASSIFIED`. |
-| APK build | Reels fix is ready for the gated workflow; no APK was built locally. |
+| APK build | **Built** by the gated workflow: run `43684131825`, commit `27b6653`, SHA-256 `f3f1577…`, published as test prerelease `debug-test-43684131825-1`. |
 | APK signature / package / patch-report verification | **Not possible without an APK.** |
 
 No claim in this directory treats source tests as device proof. The Reels branch is backed by the device log plus the exact class hierarchy of the installed Instagram version; the Feed state is still unclassified.
