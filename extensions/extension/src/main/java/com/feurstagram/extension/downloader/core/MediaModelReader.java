@@ -129,6 +129,19 @@ public final class MediaModelReader {
                 && className.equals("com.instagram.feed.media.Media");
     }
 
+    /**
+     * Whether an object is the media model itself.
+     *
+     * <p>A structural check only: it reads the class name and nothing else. The
+     * M12 trace uses it to report whether the binder handed over a media or a
+     * wrapper, without reading a URL at bind time.
+     *
+     * @param model the object Instagram handed to its binder, or {@code null}
+     */
+    public static boolean isMediaModel(Object model) {
+        return model != null && isMediaClass(model.getClass().getName());
+    }
+
     /** Structural wrapper check shared by native bindings. No accessors are invoked. */
     public static boolean hasSingleMediaField(Class<?> type) {
         int count = 0;

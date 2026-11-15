@@ -207,6 +207,7 @@ while IFS= read -r path; do
     docs/HMX_INSTA_M7_INCONTEXT_DOWNLOADS.md) ;;
     docs/HMX_INSTA_NEXT_PHASE_PLAN.md) ;;
     docs/HMX_DOWNLOADER_ARCHITECTURE.md) ;;
+    docs/investigations/m12-placement-diagnosis/*) ;;
     CHANGELOG.md) ;;
     *) bad "downloader changed a path outside the allowlist: $path" ;;
   esac
